@@ -21,7 +21,6 @@ function extractOwnerRepo(url: string): { owner: string; repo: string } {
 
 function classifyFile(path: string): string {
   const name = path.split("/").pop() || "";
-  const ext = name.split(".").pop()?.toLowerCase() || "";
 
   if (/\.test\.|\.spec\.|__tests__/.test(path)) return "test";
   if (/\.css$|\.scss$|\.less$|\.styled\./i.test(name)) return "style";
@@ -38,12 +37,40 @@ function classifyFile(path: string): string {
 
 function isKeyFile(path: string): boolean {
   const name = path.split("/").pop() || "";
-  // Skip node_modules, hidden files, images, fonts, lockfiles
   if (/node_modules|\.git\/|\.lock$|\.png$|\.jpg$|\.svg$|\.ico$|\.woff/i.test(path)) return false;
   if (/^\./.test(name)) return false;
 
   const ext = name.split(".").pop()?.toLowerCase() || "";
   return ["ts", "tsx", "js", "jsx", "py", "go", "rs", "java", "rb", "json", "yaml", "yml", "toml"].includes(ext);
+}
+
+// Priority scoring for smarter file selection
+function filePriority(path: string): number {
+  const name = path.split("/").pop() || "";
+  let score = 0;
+  if (/^(index|main|app|server)\./i.test(name)) score += 10;
+  if (/package\.json|tsconfig/i.test(name)) score += 8;
+  if (/route|controller|handler|api/i.test(name)) score += 6;
+  if (/hook|use[A-Z]/i.test(name)) score += 5;
+  if (/component|page|view/i.test(path)) score += 4;
+  if (/util|helper|lib/i.test(path)) score += 3;
+  if (/model|schema/i.test(name)) score += 4;
+  // Penalize deeply nested files
+  const depth = path.split("/").length;
+  score -= Math.max(0, depth - 3);
+  return score;
+}
+
+function getGitHubHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Accept": "application/vnd.github.v3+json",
+    "User-Agent": "GitVisualizer-AI",
+  };
+  const token = Deno.env.get("GITHUB_TOKEN");
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 serve(async (req) => {
@@ -59,33 +86,46 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
+    const ghHeaders = getGitHubHeaders();
+
     // 1. Fetch repo tree
     const treeRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
-      { headers: { "Accept": "application/vnd.github.v3+json", "User-Agent": "GitVisualizer-AI" } }
+      { headers: ghHeaders }
     );
 
     if (!treeRes.ok) {
       const errText = await treeRes.text();
+      if (treeRes.status === 403 && errText.includes("rate limit")) {
+        throw new Error("GitHub API rate limit exceeded. Try again later or configure a GitHub token for higher limits.");
+      }
+      if (treeRes.status === 404) {
+        throw new Error("Repository not found. Make sure it's a valid public GitHub repository.");
+      }
       throw new Error(`GitHub API error (${treeRes.status}): ${errText}`);
     }
 
     const treeData = await treeRes.json();
     const allFiles: GitHubTreeItem[] = treeData.tree || [];
+    const totalFiles = allFiles.filter((f) => f.type === "blob").length;
 
-    // Filter to key files only
-    const keyFiles = allFiles.filter((f) => f.type === "blob" && isKeyFile(f.path));
+    // Filter and sort by priority
+    const keyFiles = allFiles
+      .filter((f) => f.type === "blob" && isKeyFile(f.path))
+      .sort((a, b) => filePriority(b.path) - filePriority(a.path));
 
-    // Limit to ~50 most important files
-    const limitedFiles = keyFiles.slice(0, 50);
+    // Limit to ~60 most important files
+    const limitedFiles = keyFiles.slice(0, 60);
+    const wasTruncated = keyFiles.length > 60;
 
-    // 2. Fetch content of a handful of important files (entry points, configs)
+    // 2. Fetch content of important files (entry points, configs, key modules)
     const importantPaths = limitedFiles
       .filter((f) => {
         const name = f.path.split("/").pop() || "";
-        return /^(index|main|app|server|package\.json|tsconfig)\./i.test(name);
+        return /^(index|main|app|server|package\.json|tsconfig)\./i.test(name)
+          || /route|controller|handler/i.test(name);
       })
-      .slice(0, 8);
+      .slice(0, 12);
 
     const fileContents: Record<string, string> = {};
     await Promise.all(
@@ -93,14 +133,16 @@ serve(async (req) => {
         try {
           const res = await fetch(
             `https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`,
-            { headers: { "Accept": "application/vnd.github.v3+json", "User-Agent": "GitVisualizer-AI" } }
+            { headers: ghHeaders }
           );
           if (res.ok) {
             const data = await res.json();
             if (data.content) {
               const decoded = atob(data.content.replace(/\n/g, ""));
-              fileContents[f.path] = decoded.slice(0, 2000); // limit content size
+              fileContents[f.path] = decoded.slice(0, 2000);
             }
+          } else {
+            await res.text(); // consume body
           }
         } catch { /* skip */ }
       })
@@ -112,7 +154,6 @@ serve(async (req) => {
       .map(([path, content]) => `### ${path}\n\`\`\`\n${content}\n\`\`\``)
       .join("\n\n");
 
-    // Get folder structure
     const folders = new Set<string>();
     limitedFiles.forEach((f) => {
       const parts = f.path.split("/");
@@ -123,8 +164,12 @@ serve(async (req) => {
       }
     });
 
-    const prompt = `Analyze this GitHub repository "${owner}/${repo}" and create a system architecture diagram.
+    const truncationNote = wasTruncated
+      ? `\n\nNote: This repository has ${totalFiles} total files. Only the ${limitedFiles.length} most architecturally important files are shown. Focus on these key files.\n`
+      : "";
 
+    const prompt = `Analyze this GitHub repository "${owner}/${repo}" and create a system architecture diagram.
+${truncationNote}
 ## File Tree
 ${fileList}
 
@@ -252,6 +297,8 @@ Focus on the most architecturally significant ~20-30 nodes. Include key director
     const result = {
       repoName: `${owner}/${repo}`,
       repoUrl,
+      totalFiles,
+      wasTruncated,
       nodes: parsed.nodes || [],
       edges: parsed.edges || [],
     };
