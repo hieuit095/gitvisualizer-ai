@@ -16,6 +16,7 @@ import "@xyflow/react/dist/style.css";
 import { ArrowLeft, GitBranch } from "lucide-react";
 import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
+import NodeSearch from "@/components/NodeSearch";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import FileNode from "@/components/nodes/FileNode";
@@ -128,7 +129,8 @@ const VisualizeInner = () => {
         <span className="text-xs text-muted-foreground">
           {nodes.length} nodes · {edges.length} edges
         </span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <NodeSearch />
           <ExportButton repoName={repoName} />
         </div>
       </div>
