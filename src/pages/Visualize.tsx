@@ -116,6 +116,15 @@ const VisualizeInner = () => {
     setSelectedNode(node.data as unknown as RepoNode);
   }, []);
 
+  const toggleDirection = useCallback(() => {
+    if (!analysisResult) return;
+    const newDir = direction === "TB" ? "LR" : "TB";
+    setDirection(newDir);
+    const { nodes: ln, edges: le } = buildFlowElements(analysisResult, newDir);
+    setNodes(ln);
+    setEdges(le);
+  }, [analysisResult, direction, setNodes, setEdges]);
+
   if (loading) {
     return <AnalysisProgress currentStep={progressStep} />;
   }
