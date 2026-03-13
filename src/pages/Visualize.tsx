@@ -262,6 +262,7 @@ const VisualizeInner = () => {
 
       <Legend />
       <InfoPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
+      <RepoChat analysisResult={analysisResult} />
     </div>
   );
 };
