@@ -80,14 +80,14 @@ serve(async (req) => {
   }
 
   try {
-    const { repoUrl } = await req.json();
+    const { repoUrl, githubToken } = await req.json();
     if (!repoUrl) throw new Error("repoUrl is required");
 
     const { owner, repo } = extractOwnerRepo(repoUrl);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const ghHeaders = getGitHubHeaders();
+    const ghHeaders = getGitHubHeaders(githubToken);
 
     // 1. Fetch repo tree
     const treeRes = await fetch(
