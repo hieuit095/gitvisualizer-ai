@@ -188,6 +188,7 @@ Focus on the most architecturally significant ~20-30 nodes. Include key director
                         summary: { type: "string" },
                         keyFunctions: { type: "array", items: { type: "string" } },
                         tutorial: { type: "string" },
+                        codeSnippet: { type: "string" },
                         path: { type: "string" },
                       },
                       required: ["id", "name", "type", "summary", "path"],
