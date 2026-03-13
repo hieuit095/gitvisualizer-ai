@@ -143,6 +143,7 @@ You MUST respond with a JSON object using the tool provided. Generate:
    - summary: 1-2 sentence description of what this file/folder does
    - keyFunctions: array of key function/export names (for files)
    - tutorial: how this file connects to others in the system
+   - codeSnippet: a short representative code snippet (3-8 lines) showing the core logic or exports of this file. Use real or realistic code.
    - path: full file path
 
 2. **edges**: Dependencies between nodes:
@@ -187,6 +188,7 @@ Focus on the most architecturally significant ~20-30 nodes. Include key director
                         summary: { type: "string" },
                         keyFunctions: { type: "array", items: { type: "string" } },
                         tutorial: { type: "string" },
+                        codeSnippet: { type: "string" },
                         path: { type: "string" },
                       },
                       required: ["id", "name", "type", "summary", "path"],
