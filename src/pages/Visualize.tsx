@@ -34,7 +34,7 @@ const edgeDefaults = {
   animated: true,
 };
 
-function buildFlowElements(result: AnalysisResult) {
+function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB") {
   const flowNodes: Node[] = result.nodes.map((n) => ({
     id: n.id,
     type: n.type === "folder" ? "folderNode" : "fileNode",
@@ -54,7 +54,7 @@ function buildFlowElements(result: AnalysisResult) {
     },
   }));
 
-  return getLayoutedElements(flowNodes, flowEdges);
+  return getLayoutedElements(flowNodes, flowEdges, direction);
 }
 
 const VisualizeInner = () => {
