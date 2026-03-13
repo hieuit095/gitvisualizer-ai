@@ -13,7 +13,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, GitBranch } from "lucide-react";
+import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft } from "lucide-react";
 import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
 import NodeSearch from "@/components/NodeSearch";
@@ -34,7 +34,7 @@ const edgeDefaults = {
   animated: true,
 };
 
-function buildFlowElements(result: AnalysisResult) {
+function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB") {
   const flowNodes: Node[] = result.nodes.map((n) => ({
     id: n.id,
     type: n.type === "folder" ? "folderNode" : "fileNode",
@@ -54,7 +54,7 @@ function buildFlowElements(result: AnalysisResult) {
     },
   }));
 
-  return getLayoutedElements(flowNodes, flowEdges);
+  return getLayoutedElements(flowNodes, flowEdges, direction);
 }
 
 const VisualizeInner = () => {
@@ -68,6 +68,8 @@ const VisualizeInner = () => {
   const [loading, setLoading] = useState(true);
   const [progressStep, setProgressStep] = useState(0);
   const [repoName, setRepoName] = useState("");
+  const [direction, setDirection] = useState<"TB" | "LR">("TB");
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
 
   useEffect(() => {
     if (!repoUrl) {
@@ -91,8 +93,9 @@ const VisualizeInner = () => {
 
         setProgressStep(3);
         setRepoName(result.repoName);
+        setAnalysisResult(result);
 
-        const { nodes: ln, edges: le } = buildFlowElements(result);
+        const { nodes: ln, edges: le } = buildFlowElements(result, "TB");
         setNodes(ln);
         setEdges(le);
 
@@ -113,6 +116,15 @@ const VisualizeInner = () => {
     setSelectedNode(node.data as unknown as RepoNode);
   }, []);
 
+  const toggleDirection = useCallback(() => {
+    if (!analysisResult) return;
+    const newDir = direction === "TB" ? "LR" : "TB";
+    setDirection(newDir);
+    const { nodes: ln, edges: le } = buildFlowElements(analysisResult, newDir);
+    setNodes(ln);
+    setEdges(le);
+  }, [analysisResult, direction, setNodes, setEdges]);
+
   if (loading) {
     return <AnalysisProgress currentStep={progressStep} />;
   }
@@ -131,6 +143,19 @@ const VisualizeInner = () => {
         </span>
         <div className="ml-auto flex items-center gap-2">
           <NodeSearch />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={toggleDirection}
+            title={direction === "TB" ? "Switch to horizontal" : "Switch to vertical"}
+          >
+            {direction === "TB" ? (
+              <ArrowRightLeft className="h-4 w-4" />
+            ) : (
+              <ArrowDownUp className="h-4 w-4" />
+            )}
+          </Button>
           <ExportButton repoName={repoName} />
         </div>
       </div>
