@@ -14,7 +14,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw } from "lucide-react";
+import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle } from "lucide-react";
 import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
 import NodeSearch from "@/components/NodeSearch";
@@ -77,6 +77,7 @@ const VisualizeInner = () => {
   const [repoName, setRepoName] = useState("");
   const [direction, setDirection] = useState<"TB" | "LR">("TB");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [repoMeta, setRepoMeta] = useState<{ totalFiles?: number; wasTruncated?: boolean }>({});
 
   const runAnalysis = useCallback(async () => {
     if (!repoUrl) {
@@ -87,6 +88,7 @@ const VisualizeInner = () => {
     setLoading(true);
     setError(null);
     setProgressStep(0);
+    setDirection("TB");
 
     try {
       const stepTimer = setInterval(() => {
@@ -100,12 +102,21 @@ const VisualizeInner = () => {
       setProgressStep(3);
       setRepoName(result.repoName);
       setAnalysisResult(result);
+      setRepoMeta({ totalFiles: result.totalFiles, wasTruncated: result.wasTruncated });
 
       const { nodes: ln, edges: le } = buildFlowElements(result, "TB");
       setNodes(ln);
       setEdges(le);
 
-      setTimeout(() => setLoading(false), 600);
+      setTimeout(() => {
+        setLoading(false);
+        if (result.wasTruncated) {
+          toast({
+            title: "Large repository",
+            description: `This repo has ${result.totalFiles} files. Showing the ${result.nodes.length} most important nodes.`,
+          });
+        }
+      }, 600);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Failed to analyze repository");
@@ -164,7 +175,10 @@ const VisualizeInner = () => {
   return (
     <div className="relative h-screen w-screen bg-background">
       {/* Top bar */}
-      <div className="absolute left-0 top-0 z-40 flex items-center gap-3 border-b border-border/50 bg-card/80 px-4 py-2.5 backdrop-blur-sm" style={{ width: selectedNode ? "calc(100% - 384px)" : "100%" }}>
+      <div
+        className="absolute left-0 top-0 z-40 flex items-center gap-3 border-b border-border/50 bg-card/80 px-4 py-2.5 backdrop-blur-sm"
+        style={{ width: selectedNode ? "calc(100% - 384px)" : "100%" }}
+      >
         <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="h-8 w-8">
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -173,8 +187,25 @@ const VisualizeInner = () => {
         <span className="text-xs text-muted-foreground">
           {nodes.length} nodes · {edges.length} edges
         </span>
+
+        {repoMeta.wasTruncated && (
+          <span className="flex items-center gap-1 rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">
+            <AlertCircle className="h-3 w-3" />
+            {repoMeta.totalFiles} files (truncated)
+          </span>
+        )}
+
         <div className="ml-auto flex items-center gap-2">
           <NodeSearch />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={runAnalysis}
+            title="Re-analyze repository"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
