@@ -47,7 +47,7 @@ const AnalysisProgress = ({ currentStep }: AnalysisProgressProps) => {
             >
               <div className={`rounded-lg p-2 ${isActive ? "bg-primary/10" : isDone ? "bg-muted" : "bg-card"}`}>
                 {isDone ? (
-                  <Check className="h-4 w-4 text-green-400" />
+                  <Check className="h-4 w-4 text-primary" />
                 ) : (
                   <Icon className={`h-4 w-4 ${isActive ? "animate-pulse text-primary" : "text-muted-foreground"}`} />
                 )}

@@ -35,7 +35,7 @@ function buildFlowElements(result: AnalysisResult) {
     id: n.id,
     type: n.type === "folder" ? "folderNode" : "fileNode",
     position: { x: 0, y: 0 },
-    data: n,
+    data: { ...n } as Record<string, unknown>,
   }));
 
   const flowEdges: Edge[] = result.edges.map((e) => ({
