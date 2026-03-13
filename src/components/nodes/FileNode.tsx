@@ -19,13 +19,18 @@ const typeConfig: Record<RepoNode["type"], { icon: typeof FileText; color: strin
 };
 
 const FileNode = memo(({ data }: NodeProps) => {
-  const nodeData = data as unknown as RepoNode;
+  const nodeData = data as unknown as RepoNode & { direction?: string };
   const config = typeConfig[nodeData.type] || typeConfig.other;
   const Icon = config.icon;
+  const isHorizontal = nodeData.direction === "LR";
 
   return (
     <div className="group relative min-w-[180px] cursor-pointer rounded-lg border border-border/60 bg-card/80 px-4 py-3 backdrop-blur-sm transition-all hover:border-primary/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.15)]">
-      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-primary !bg-primary" />
+      <Handle
+        type="target"
+        position={isHorizontal ? Position.Left : Position.Top}
+        className="!h-2 !w-2 !border-primary !bg-primary"
+      />
 
       <div className="flex items-center gap-2.5">
         <Icon className={`h-4 w-4 shrink-0 ${config.color}`} />
@@ -41,7 +46,11 @@ const FileNode = memo(({ data }: NodeProps) => {
         </p>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !border-primary !bg-primary" />
+      <Handle
+        type="source"
+        position={isHorizontal ? Position.Right : Position.Bottom}
+        className="!h-2 !w-2 !border-primary !bg-primary"
+      />
     </div>
   );
 });
