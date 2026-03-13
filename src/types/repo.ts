@@ -20,6 +20,8 @@ export interface RepoEdge {
 export interface AnalysisResult {
   repoName: string;
   repoUrl: string;
+  totalFiles?: number;
+  wasTruncated?: boolean;
   nodes: RepoNode[];
   edges: RepoEdge[];
 }
