@@ -129,7 +129,8 @@ const VisualizeInner = () => {
         <span className="text-xs text-muted-foreground">
           {nodes.length} nodes · {edges.length} edges
         </span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <NodeSearch />
           <ExportButton repoName={repoName} />
         </div>
       </div>
