@@ -14,7 +14,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle } from "lucide-react";
+import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle, Lock } from "lucide-react";
 import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
 import NodeSearch from "@/components/NodeSearch";
@@ -24,6 +24,7 @@ import FileNode from "@/components/nodes/FileNode";
 import FolderNode from "@/components/nodes/FolderNode";
 import InfoPanel from "@/components/InfoPanel";
 import AnalysisProgress from "@/components/AnalysisProgress";
+import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
 import { getLayoutedElements } from "@/lib/layout";
 import { analyzeRepository } from "@/lib/analysis";
 import type { AnalysisResult, RepoNode } from "@/types/repo";
