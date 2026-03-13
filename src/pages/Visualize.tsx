@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   ReactFlow,
+  ReactFlowProvider,
   MiniMap,
   Controls,
   Background,
@@ -14,6 +15,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { ArrowLeft, GitBranch } from "lucide-react";
 import Legend from "@/components/Legend";
+import ExportButton from "@/components/ExportButton";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import FileNode from "@/components/nodes/FileNode";
@@ -54,7 +56,7 @@ function buildFlowElements(result: AnalysisResult) {
   return getLayoutedElements(flowNodes, flowEdges);
 }
 
-const Visualize = () => {
+const VisualizeInner = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const repoUrl = searchParams.get("repo") || "";
@@ -126,6 +128,9 @@ const Visualize = () => {
         <span className="text-xs text-muted-foreground">
           {nodes.length} nodes · {edges.length} edges
         </span>
+        <div className="ml-auto">
+          <ExportButton repoName={repoName} />
+        </div>
       </div>
 
       <ReactFlow
@@ -156,5 +161,11 @@ const Visualize = () => {
     </div>
   );
 };
+
+const Visualize = () => (
+  <ReactFlowProvider>
+    <VisualizeInner />
+  </ReactFlowProvider>
+);
 
 export default Visualize;
