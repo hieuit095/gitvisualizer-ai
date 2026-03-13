@@ -93,8 +93,9 @@ const VisualizeInner = () => {
 
         setProgressStep(3);
         setRepoName(result.repoName);
+        setAnalysisResult(result);
 
-        const { nodes: ln, edges: le } = buildFlowElements(result);
+        const { nodes: ln, edges: le } = buildFlowElements(result, "TB");
         setNodes(ln);
         setEdges(le);
 
