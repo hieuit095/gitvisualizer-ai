@@ -143,6 +143,19 @@ const VisualizeInner = () => {
         </span>
         <div className="ml-auto flex items-center gap-2">
           <NodeSearch />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={toggleDirection}
+            title={direction === "TB" ? "Switch to horizontal" : "Switch to vertical"}
+          >
+            {direction === "TB" ? (
+              <ArrowRightLeft className="h-4 w-4" />
+            ) : (
+              <ArrowDownUp className="h-4 w-4" />
+            )}
+          </Button>
           <ExportButton repoName={repoName} />
         </div>
       </div>
