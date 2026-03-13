@@ -14,7 +14,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle } from "lucide-react";
+import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle, Lock } from "lucide-react";
 import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
 import NodeSearch from "@/components/NodeSearch";
@@ -24,6 +24,7 @@ import FileNode from "@/components/nodes/FileNode";
 import FolderNode from "@/components/nodes/FolderNode";
 import InfoPanel from "@/components/InfoPanel";
 import AnalysisProgress from "@/components/AnalysisProgress";
+import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
 import { getLayoutedElements } from "@/lib/layout";
 import { analyzeRepository } from "@/lib/analysis";
 import type { AnalysisResult, RepoNode } from "@/types/repo";
@@ -95,7 +96,7 @@ const VisualizeInner = () => {
         setProgressStep((s) => Math.min(s + 1, 2));
       }, 2000);
 
-      const result = await analyzeRepository(repoUrl);
+      const result = await analyzeRepository(repoUrl, getStoredToken() || undefined);
 
       clearInterval(stepTimer);
 
@@ -156,7 +157,19 @@ const VisualizeInner = () => {
             <AlertTriangle className="h-8 w-8 text-destructive" />
           </div>
           <h2 className="mb-2 font-mono text-xl font-bold text-foreground">Analysis Failed</h2>
-          <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{error}</p>
+          <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{error}</p>
+          {error.includes("private") || error.includes("Access denied") ? (
+            <div className="mb-6">
+              <GitHubTokenDialog
+                trigger={
+                  <Button variant="outline" className="gap-2">
+                    <Lock className="h-4 w-4" />
+                    {getStoredToken() ? "Update GitHub token" : "Add GitHub token"}
+                  </Button>
+                }
+              />
+            </div>
+          ) : null}
           <div className="flex items-center justify-center gap-3">
             <Button variant="outline" onClick={() => navigate("/")} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
@@ -196,7 +209,7 @@ const VisualizeInner = () => {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <NodeSearch />
+          <GitHubTokenDialog />
           <Button
             variant="ghost"
             size="icon"

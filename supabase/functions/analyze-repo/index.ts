@@ -61,12 +61,13 @@ function filePriority(path: string): number {
   return score;
 }
 
-function getGitHubHeaders(): Record<string, string> {
+function getGitHubHeaders(userToken?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": "GitVisualizer-AI",
   };
-  const token = Deno.env.get("GITHUB_TOKEN");
+  // Prefer user-provided token (for private repos), fallback to env token
+  const token = userToken || Deno.env.get("GITHUB_TOKEN");
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
@@ -79,14 +80,14 @@ serve(async (req) => {
   }
 
   try {
-    const { repoUrl } = await req.json();
+    const { repoUrl, githubToken } = await req.json();
     if (!repoUrl) throw new Error("repoUrl is required");
 
     const { owner, repo } = extractOwnerRepo(repoUrl);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const ghHeaders = getGitHubHeaders();
+    const ghHeaders = getGitHubHeaders(githubToken);
 
     // 1. Fetch repo tree
     const treeRes = await fetch(
@@ -100,7 +101,10 @@ serve(async (req) => {
         throw new Error("GitHub API rate limit exceeded. Try again later or configure a GitHub token for higher limits.");
       }
       if (treeRes.status === 404) {
-        throw new Error("Repository not found. Make sure it's a valid public GitHub repository.");
+        throw new Error("Repository not found. Make sure it's a valid GitHub repository. For private repos, add a GitHub token with repo access.");
+      }
+      if (treeRes.status === 401 || treeRes.status === 403) {
+        throw new Error("Access denied. This may be a private repository — add a GitHub Personal Access Token with repo access to analyze it.");
       }
       throw new Error(`GitHub API error (${treeRes.status}): ${errText}`);
     }

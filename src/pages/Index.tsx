@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { GitBranch, Sparkles, ArrowRight, Github, Loader2 } from "lucide-react";
+import { GitBranch, Sparkles, ArrowRight, Github, Loader2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
+import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
 
 const GITHUB_URL_REGEX = /^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/;
 
@@ -116,7 +117,7 @@ const Index = () => {
           transition={{ duration: 0.6, delay: 0.5 }}
           className="mt-8 flex flex-wrap items-center justify-center gap-3"
         >
-          {["Interactive diagrams", "AI summaries", "Dependency mapping", "Zero setup"].map((feat) => (
+          {["Interactive diagrams", "AI summaries", "Dependency mapping", "Private repos"].map((feat) => (
             <span
               key={feat}
               className="rounded-full border border-border/50 bg-muted/50 px-4 py-1.5 text-xs font-medium text-muted-foreground"
@@ -124,6 +125,22 @@ const Index = () => {
               {feat}
             </span>
           ))}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.6, delay: 0.6 }}
+          className="mt-4 flex justify-center"
+        >
+          <GitHubTokenDialog
+            trigger={
+              <button className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary">
+                <Lock className="h-3 w-3" />
+                {getStoredToken() ? "GitHub token configured ✓" : "Add GitHub token for private repos"}
+              </button>
+            }
+          />
         </motion.div>
       </div>
     </div>

@@ -1,9 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { AnalysisResult } from "@/types/repo";
 
-export async function analyzeRepository(repoUrl: string): Promise<AnalysisResult> {
+export async function analyzeRepository(repoUrl: string, githubToken?: string): Promise<AnalysisResult> {
   const { data, error } = await supabase.functions.invoke("analyze-repo", {
-    body: { repoUrl },
+    body: { repoUrl, githubToken },
   });
 
   if (error) {
