@@ -101,7 +101,10 @@ serve(async (req) => {
         throw new Error("GitHub API rate limit exceeded. Try again later or configure a GitHub token for higher limits.");
       }
       if (treeRes.status === 404) {
-        throw new Error("Repository not found. Make sure it's a valid public GitHub repository.");
+        throw new Error("Repository not found. Make sure it's a valid GitHub repository. For private repos, add a GitHub token with repo access.");
+      }
+      if (treeRes.status === 401 || treeRes.status === 403) {
+        throw new Error("Access denied. This may be a private repository — add a GitHub Personal Access Token with repo access to analyze it.");
       }
       throw new Error(`GitHub API error (${treeRes.status}): ${errText}`);
     }
