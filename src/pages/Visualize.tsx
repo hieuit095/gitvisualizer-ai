@@ -151,6 +151,7 @@ const Visualize = () => {
         />
       </ReactFlow>
 
+      <Legend />
       <InfoPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
     </div>
   );
