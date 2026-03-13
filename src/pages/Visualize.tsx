@@ -157,7 +157,19 @@ const VisualizeInner = () => {
             <AlertTriangle className="h-8 w-8 text-destructive" />
           </div>
           <h2 className="mb-2 font-mono text-xl font-bold text-foreground">Analysis Failed</h2>
-          <p className="mb-6 text-sm leading-relaxed text-muted-foreground">{error}</p>
+          <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{error}</p>
+          {error.includes("private") || error.includes("Access denied") ? (
+            <div className="mb-6">
+              <GitHubTokenDialog
+                trigger={
+                  <Button variant="outline" className="gap-2">
+                    <Lock className="h-4 w-4" />
+                    {getStoredToken() ? "Update GitHub token" : "Add GitHub token"}
+                  </Button>
+                }
+              />
+            </div>
+          ) : null}
           <div className="flex items-center justify-center gap-3">
             <Button variant="outline" onClick={() => navigate("/")} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
