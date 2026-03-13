@@ -128,6 +128,9 @@ const VisualizeInner = () => {
         <span className="text-xs text-muted-foreground">
           {nodes.length} nodes · {edges.length} edges
         </span>
+        <div className="ml-auto">
+          <ExportButton repoName={repoName} />
+        </div>
       </div>
 
       <ReactFlow
