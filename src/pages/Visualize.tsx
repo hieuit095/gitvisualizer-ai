@@ -13,6 +13,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ArrowLeft, GitBranch } from "lucide-react";
+import Legend from "@/components/Legend";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import FileNode from "@/components/nodes/FileNode";
@@ -150,6 +151,7 @@ const Visualize = () => {
         />
       </ReactFlow>
 
+      <Legend />
       <InfoPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
     </div>
   );
