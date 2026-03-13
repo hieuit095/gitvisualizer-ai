@@ -68,6 +68,8 @@ const VisualizeInner = () => {
   const [loading, setLoading] = useState(true);
   const [progressStep, setProgressStep] = useState(0);
   const [repoName, setRepoName] = useState("");
+  const [direction, setDirection] = useState<"TB" | "LR">("TB");
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
 
   useEffect(() => {
     if (!repoUrl) {
