@@ -96,7 +96,7 @@ const VisualizeInner = () => {
         setProgressStep((s) => Math.min(s + 1, 2));
       }, 2000);
 
-      const result = await analyzeRepository(repoUrl);
+      const result = await analyzeRepository(repoUrl, getStoredToken() || undefined);
 
       clearInterval(stepTimer);
 
