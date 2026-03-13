@@ -162,4 +162,10 @@ const VisualizeInner = () => {
   );
 };
 
+const Visualize = () => (
+  <ReactFlowProvider>
+    <VisualizeInner />
+  </ReactFlowProvider>
+);
+
 export default Visualize;
