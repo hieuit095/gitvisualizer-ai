@@ -27,6 +27,7 @@ import AnalysisProgress from "@/components/AnalysisProgress";
 import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
 import { getLayoutedElements } from "@/lib/layout";
 import { analyzeRepository } from "@/lib/analysis";
+import RepoChat from "@/components/RepoChat";
 import type { AnalysisResult, RepoNode } from "@/types/repo";
 
 const nodeTypes = { fileNode: FileNode, folderNode: FolderNode };
