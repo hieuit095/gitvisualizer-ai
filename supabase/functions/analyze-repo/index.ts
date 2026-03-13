@@ -61,12 +61,13 @@ function filePriority(path: string): number {
   return score;
 }
 
-function getGitHubHeaders(): Record<string, string> {
+function getGitHubHeaders(userToken?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Accept": "application/vnd.github.v3+json",
     "User-Agent": "GitVisualizer-AI",
   };
-  const token = Deno.env.get("GITHUB_TOKEN");
+  // Prefer user-provided token (for private repos), fallback to env token
+  const token = userToken || Deno.env.get("GITHUB_TOKEN");
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
