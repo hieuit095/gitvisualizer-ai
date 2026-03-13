@@ -56,7 +56,7 @@ function buildFlowElements(result: AnalysisResult) {
   return getLayoutedElements(flowNodes, flowEdges);
 }
 
-const Visualize = () => {
+const VisualizeInner = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const repoUrl = searchParams.get("repo") || "";
