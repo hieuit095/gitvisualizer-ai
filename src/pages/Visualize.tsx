@@ -210,6 +210,7 @@ const VisualizeInner = () => {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          <NodeSearch />
           <GitHubTokenDialog />
           <Button
             variant="ghost"
