@@ -1,0 +1,4 @@
+project_id = "lymoejelbebhyidgrfzt"
+
+[functions.analyze-repo]
+verify_jwt = false

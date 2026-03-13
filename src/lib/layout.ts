@@ -1,0 +1,28 @@
+import dagre from "dagre";
+import type { Node, Edge } from "@xyflow/react";
+
+export function getLayoutedElements(nodes: Node[], edges: Edge[], direction = "TB") {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: direction, nodesep: 60, ranksep: 80 });
+
+  nodes.forEach((node) => {
+    g.setNode(node.id, { width: 200, height: 80 });
+  });
+
+  edges.forEach((edge) => {
+    g.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(g);
+
+  const layoutedNodes = nodes.map((node) => {
+    const pos = g.node(node.id);
+    return {
+      ...node,
+      position: { x: pos.x - 100, y: pos.y - 40 },
+    };
+  });
+
+  return { nodes: layoutedNodes, edges };
+}
