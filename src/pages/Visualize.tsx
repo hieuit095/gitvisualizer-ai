@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   ReactFlow,
@@ -28,7 +28,7 @@ import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialo
 import { getLayoutedElements } from "@/lib/layout";
 import { analyzeRepository } from "@/lib/analysis";
 import RepoChat from "@/components/RepoChat";
-import type { AnalysisResult, RepoNode } from "@/types/repo";
+import type { AnalysisResult, RepoNode, ProgressEvent, NodeDetail } from "@/types/repo";
 
 const nodeTypes = { fileNode: FileNode, folderNode: FolderNode };
 
@@ -64,6 +64,15 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
   return getLayoutedElements(flowNodes, flowEdges, direction);
 }
 
+// Map progress steps to step indices
+const stepMapping: Record<string, number> = {
+  fetch: 0, fetch_done: 0,
+  filter: 1, filter_done: 1,
+  extract: 2, extract_done: 2,
+  analyze: 3,
+  done: 4,
+};
+
 const VisualizeInner = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -76,10 +85,11 @@ const VisualizeInner = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [progressStep, setProgressStep] = useState(0);
+  const [progressEvents, setProgressEvents] = useState<ProgressEvent[]>([]);
   const [repoName, setRepoName] = useState("");
   const [direction, setDirection] = useState<"TB" | "LR">("TB");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [repoMeta, setRepoMeta] = useState<{ totalFiles?: number; wasTruncated?: boolean }>({});
+  const [repoMeta, setRepoMeta] = useState<{ totalFiles?: number; wasTruncated?: boolean; filteredOut?: number }>({});
 
   const runAnalysis = useCallback(async () => {
     if (!repoUrl) {
@@ -90,21 +100,30 @@ const VisualizeInner = () => {
     setLoading(true);
     setError(null);
     setProgressStep(0);
+    setProgressEvents([]);
     setDirection("TB");
 
     try {
-      const stepTimer = setInterval(() => {
-        setProgressStep((s) => Math.min(s + 1, 2));
-      }, 2000);
+      const result = await analyzeRepository(
+        repoUrl,
+        getStoredToken() || undefined,
+        (event) => {
+          setProgressEvents(prev => [...prev, event]);
+          const stepIdx = stepMapping[event.step];
+          if (stepIdx !== undefined) {
+            setProgressStep(stepIdx);
+          }
+        }
+      );
 
-      const result = await analyzeRepository(repoUrl, getStoredToken() || undefined);
-
-      clearInterval(stepTimer);
-
-      setProgressStep(3);
+      setProgressStep(4);
       setRepoName(result.repoName);
       setAnalysisResult(result);
-      setRepoMeta({ totalFiles: result.totalFiles, wasTruncated: result.wasTruncated });
+      setRepoMeta({
+        totalFiles: result.totalFiles,
+        wasTruncated: result.wasTruncated,
+        filteredOut: result.filteredOut,
+      });
 
       const { nodes: ln, edges: le } = buildFlowElements(result, "TB");
       setNodes(ln);
@@ -115,7 +134,7 @@ const VisualizeInner = () => {
         if (result.wasTruncated) {
           toast({
             title: "Large repository",
-            description: `This repo has ${result.totalFiles} files. Showing the ${result.nodes.length} most important nodes.`,
+            description: `${result.totalFiles} files found → ${result.filteredOut} filtered out → ${result.nodes.length} nodes shown.`,
           });
         }
       }, 600);
@@ -134,6 +153,26 @@ const VisualizeInner = () => {
     setSelectedNode(node.data as unknown as RepoNode);
   }, []);
 
+  const handleNodeDetailLoaded = useCallback((nodeId: string, detail: NodeDetail) => {
+    // Update the analysis result with loaded detail so it caches
+    setAnalysisResult(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        nodes: prev.nodes.map(n =>
+          n.id === nodeId
+            ? { ...n, ...detail, detailLoaded: true }
+            : n
+        ),
+      };
+    });
+    // Also update the selected node if it matches
+    setSelectedNode(prev => {
+      if (!prev || prev.id !== nodeId) return prev;
+      return { ...prev, ...detail, detailLoaded: true };
+    });
+  }, []);
+
   const toggleDirection = useCallback(() => {
     if (!analysisResult) return;
     const newDir = direction === "TB" ? "LR" : "TB";
@@ -145,10 +184,9 @@ const VisualizeInner = () => {
   }, [analysisResult, direction, setNodes, setEdges, fitView]);
 
   if (loading) {
-    return <AnalysisProgress currentStep={progressStep} />;
+    return <AnalysisProgress currentStep={progressStep} progressEvents={progressEvents} />;
   }
 
-  // Error state
   if (error) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6">
@@ -205,20 +243,14 @@ const VisualizeInner = () => {
         {repoMeta.wasTruncated && (
           <span className="flex items-center gap-1 rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">
             <AlertCircle className="h-3 w-3" />
-            {repoMeta.totalFiles} files (truncated)
+            {repoMeta.totalFiles} files ({repoMeta.filteredOut} filtered)
           </span>
         )}
 
         <div className="ml-auto flex items-center gap-2">
           <NodeSearch />
           <GitHubTokenDialog />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={runAnalysis}
-            title="Re-analyze repository"
-          >
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={runAnalysis} title="Re-analyze repository">
             <RotateCcw className="h-4 w-4" />
           </Button>
           <Button
@@ -228,11 +260,7 @@ const VisualizeInner = () => {
             onClick={toggleDirection}
             title={direction === "TB" ? "Switch to horizontal" : "Switch to vertical"}
           >
-            {direction === "TB" ? (
-              <ArrowRightLeft className="h-4 w-4" />
-            ) : (
-              <ArrowDownUp className="h-4 w-4" />
-            )}
+            {direction === "TB" ? <ArrowRightLeft className="h-4 w-4" /> : <ArrowDownUp className="h-4 w-4" />}
           </Button>
           <ExportButton repoName={repoName} />
         </div>
@@ -262,7 +290,12 @@ const VisualizeInner = () => {
       </ReactFlow>
 
       <Legend />
-      <InfoPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
+      <InfoPanel
+        node={selectedNode}
+        repoUrl={repoUrl}
+        onClose={() => setSelectedNode(null)}
+        onNodeDetailLoaded={handleNodeDetailLoaded}
+      />
       <RepoChat analysisResult={analysisResult} />
     </div>
   );
