@@ -5,6 +5,8 @@
 
   **Visualize any GitHub repository in seconds with AI-powered architecture diagrams.**
 
+  **🚀 Try it live: [https://gitvisualizer-ai.vercel.app/](https://gitvisualizer-ai.vercel.app/)**
+
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
   [![Vite](https://img.shields.io/badge/vite-%23646CFF.svg?style=flat&logo=vite&logoColor=white)](https://vitejs.dev/)
   [![React](https://img.shields.io/badge/react-%2320232a.svg?style=flat&logo=react&logoColor=%2361DAFB)](https://reactjs.org/)
@@ -109,20 +111,31 @@ You need to configure your environment variables to use the AI capabilities.
    ```
 
 2. **Configure your `.env` file:**
-   Open the `.env` file and set your desired AI provider and API key.
+   Open the `.env` file and configure the available variables:
 
    ```env
-   # Choose from: "openai", "openrouter", "together", "gemini"
+   # ─── Required ───────────────────────────────────────────────────────────
+   # AI Provider: "openai" | "openrouter" | "together" | "gemini"
    AI_PROVIDER=openai
 
    # Your API key for the chosen provider
-   AI_API_KEY=sk-your-api-key
+   AI_API_KEY=sk-your-api-key-here
 
-   # Optional: Set a specific model to use
+   # ─── Optional ───────────────────────────────────────────────────────────
+   # Override the default model for your provider (e.g., gpt-4o-mini)
    # AI_MODEL=gpt-4o-mini
 
-   # Optional GitHub Token to read private repos & avoid strict API rate limits
-   GITHUB_TOKEN=ghp_your_github_token_here
+   # Override the API base URL (for custom/self-hosted endpoints)
+   # AI_BASE_URL=https://api.openai.com/v1
+
+   # GitHub token for higher rate limits / private repos
+   # GITHUB_TOKEN=ghp_your_token_here
+
+   # Application URL (used as HTTP Referer for some AI providers like OpenRouter)
+   # APP_URL=http://localhost:5173
+
+   # Directory for persistent JSON storage (defaults to in-memory only if not set)
+   # DATA_DIR=./data
    ```
 
 ---
@@ -149,7 +162,10 @@ Deployment is extremely straightforward because the app is completely stateless 
 
 1. Install the [Vercel CLI](https://vercel.com/cli) or connect your GitHub repository directly to Vercel via the web dashboard.
 2. In the Vercel project settings, go to **Environment Variables** and add:
-   - `AI_PROVIDER`
-   - `AI_API_KEY`
-   - `GITHUB_TOKEN` (Optional, but highly recommended)
+   - `AI_PROVIDER` - The AI provider to use (e.g. `openai`, `openrouter`).
+   - `AI_API_KEY` - The API key for your selected provider.
+   - `AI_MODEL` - (Optional) Override the default model.
+   - `AI_BASE_URL` - (Optional) Override the base URL for the AI API.
+   - `APP_URL` - (Optional) The production URL of your deployment (used as HTTP referer).
+   - `GITHUB_TOKEN` - (Optional, but highly recommended) Token to increase API limits and access private repositories.
 3. Deploy! The `/api/*` directory automatically sets up Vercel Serverless Functions to handle AI analysis on the fly.
