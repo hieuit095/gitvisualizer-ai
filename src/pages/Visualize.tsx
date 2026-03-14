@@ -233,6 +233,7 @@ const VisualizeInner = () => {
         analysisResult={analysisResult}
         askAboutNode={askAboutNode}
         onAskHandled={() => setAskAboutNode(null)}
+        indexingStatus={indexingStatus}
       />
     </div>
   );

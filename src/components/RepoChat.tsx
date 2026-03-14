@@ -223,17 +223,33 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
   return (
     <>
       {/* FAB toggle */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-primary shadow-lg shadow-primary/25 transition-transform hover:scale-105 active:scale-95"
-        title="Ask about this codebase"
-      >
-        {open ? (
-          <X className="h-6 w-6 text-primary-foreground" />
-        ) : (
-          <MessageCircle className="h-6 w-6 text-primary-foreground" />
+      <div className="fixed bottom-6 right-6 z-50">
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-primary shadow-lg shadow-primary/25 transition-transform hover:scale-105 active:scale-95"
+          title="Ask about this codebase"
+        >
+          {open ? (
+            <X className="h-6 w-6 text-primary-foreground" />
+          ) : (
+            <MessageCircle className="h-6 w-6 text-primary-foreground" />
+          )}
+        </button>
+
+        {/* Indexing status badge */}
+        {!open && indexingStatus === "indexing" && (
+          <div className="absolute -top-2 -left-2 flex items-center gap-1 rounded-full border border-border/50 bg-card px-2 py-0.5 shadow-md">
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            <span className="text-[9px] font-medium text-muted-foreground whitespace-nowrap">Indexing…</span>
+          </div>
         )}
-      </button>
+        {!open && indexingStatus === "done" && (
+          <div className="absolute -top-2 -left-2 flex animate-in fade-in slide-in-from-bottom-1 items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 shadow-md">
+            <FileCode className="h-3 w-3 text-primary" />
+            <span className="text-[9px] font-medium text-primary whitespace-nowrap">Indexed</span>
+          </div>
+        )}
+      </div>
 
       {/* Chat panel */}
       {open && (
