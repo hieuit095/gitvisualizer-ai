@@ -181,6 +181,33 @@ export function flushChunksToDisk(): void {
   saveToDisk("chunks");
 }
 
+function tokenizeSearchTerms(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(token => token.length > 2);
+}
+
+function scoreQueryAlignment(chunk: CodeChunk, queryTerms: string[]): number {
+  if (queryTerms.length === 0) return 0;
+
+  const pathTokens = new Set(tokenizeSearchTerms(chunk.file_path));
+  const nameTokens = new Set(tokenizeSearchTerms(`${chunk.chunk_name} ${chunk.chunk_type}`));
+  const summaryTokens = new Set(tokenizeSearchTerms(chunk.summary || ""));
+  const content = chunk.content.toLowerCase();
+
+  let score = 0;
+  for (const term of queryTerms) {
+    if (pathTokens.has(term)) score += 2.5;
+    if (nameTokens.has(term)) score += 2;
+    if (summaryTokens.has(term)) score += 1;
+    if (content.includes(term)) score += 0.15;
+  }
+
+  return score;
+}
+
 // ─── Text Search (simple keyword matching, no pgvector needed) ─────────
 
 export function searchChunks(
@@ -188,17 +215,18 @@ export function searchChunks(
   queryText: string,
   maxResults = 15
 ): Array<CodeChunk & { rank: number }> {
-  const terms = queryText.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  const terms = tokenizeSearchTerms(queryText);
   if (terms.length === 0) return [];
 
   const repoChunks = codeChunks.filter(c => c.repo_url === repoUrl);
   const scored = repoChunks.map(chunk => {
-    const searchable = `${chunk.chunk_name || ""} ${chunk.summary || ""} ${chunk.content}`.toLowerCase();
+    const searchable = `${chunk.file_path} ${chunk.chunk_name || ""} ${chunk.summary || ""} ${chunk.content}`.toLowerCase();
     let score = 0;
     for (const term of terms) {
       const matches = searchable.split(term).length - 1;
       score += matches;
     }
+    score += scoreQueryAlignment(chunk, terms);
     score += Math.max(0, repoFilePriority(chunk.file_path)) * 0.25;
     return { ...chunk, rank: score };
   });
@@ -227,15 +255,21 @@ export function vectorSearchChunks(
   repoUrl: string,
   queryEmbedding: number[],
   threshold = 0.3,
-  maxResults = 15
+  maxResults = 15,
+  queryText = ""
 ): Array<CodeChunk & { similarity: number }> {
   const repoChunks = codeChunks.filter(
     c => c.repo_url === repoUrl && c.embedding && c.embedding.length > 0
   );
+  const queryTerms = tokenizeSearchTerms(queryText);
 
   const scored = repoChunks.map(chunk => {
     const similarity = cosineSimilarity(queryEmbedding, chunk.embedding!);
-    const rankingScore = similarity + repoFilePriority(chunk.file_path) * 0.01;
+    const queryAlignment = scoreQueryAlignment(chunk, queryTerms);
+    const rankingScore =
+      similarity +
+      repoFilePriority(chunk.file_path) * 0.01 +
+      queryAlignment * 0.02;
     return {
       ...chunk,
       similarity,

@@ -189,8 +189,9 @@ function buildStaticDiagramFallback(shallowMap: ShallowFileInfo[]) {
 
   const folderPaths = [...new Set(
     selectedFiles
+      .filter((file) => file.path.includes("/"))
       .map((file) => file.path.split("/")[0])
-      .filter((folder) => Boolean(folder) && folder !== selectedFiles[0]?.path),
+      .filter((folder) => Boolean(folder)),
   )].slice(0, 6);
 
   for (const folderPath of folderPaths) {
@@ -225,8 +226,8 @@ function buildStaticDiagramFallback(shallowMap: ShallowFileInfo[]) {
       path: file.path,
     });
 
-    const folderPath = file.path.split("/")[0];
-    const folderId = nodeIdByPath.get(folderPath);
+    const folderPath = file.path.includes("/") ? file.path.split("/")[0] : null;
+    const folderId = folderPath ? nodeIdByPath.get(folderPath) : undefined;
     if (folderId) {
       edges.push({
         id: makeDiagramId("edge_contains", `${folderPath}_${file.path}`),

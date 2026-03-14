@@ -24,7 +24,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           const embResult = await createEmbeddings([userQuery]);
           const queryEmbedding = embResult.data?.[0]?.embedding;
           if (queryEmbedding) {
-            const chunks = vectorSearchChunks(repoContext.repoUrl, queryEmbedding, 0.25, 15);
+            const chunks = vectorSearchChunks(repoContext.repoUrl, queryEmbedding, 0.25, 15, userQuery);
             if (chunks.length > 0) {
               searchMethod = "vector";
               chunksRetrieved = chunks.length;
@@ -61,9 +61,13 @@ ${edgesSummary}
 ${ragContext}
 
 ## Rules
-1. ${hasRag ? "CITE with [filename:L##-L##]." : "Reference specific file paths."}
-2. NO HALLUCINATION. Only reference code shown above.
-3. If source not available, say so.
+1. ${hasRag
+    ? "Use ONLY the retrieved code chunks and architecture above. Every factual claim must cite [filename:L##-L##]."
+    : "Reference only the repository architecture above and name specific file paths when possible."}
+2. ${hasRag
+    ? "Do not mention files, functions, or behavior unless they appear in the retrieved chunks or architecture list."
+    : "Do not infer implementation details that are not shown in the architecture list."}
+3. NO HALLUCINATION. If the provided source is insufficient, say exactly what is missing.
 4. Be concise, use markdown.`;
 
     const aiRes = await chatCompletion(
