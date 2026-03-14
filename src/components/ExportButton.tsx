@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import type { AnalysisResult } from "@/types/repo";
