@@ -37,8 +37,9 @@ const ExportButton = ({ repoName }: { repoName: string }) => {
         const viewport = getViewportForBounds(bounds, IMAGE_WIDTH, IMAGE_HEIGHT, 0.5, 2, 0.2);
 
         const fn = format === "png" ? toPng : toSvg;
+        const bgColor = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
         const dataUrl = await fn(el, {
-          backgroundColor: "hsl(240, 20%, 4%)",
+          backgroundColor: bgColor ? `hsl(${bgColor})` : "hsl(240, 20%, 4%)",
           width: IMAGE_WIDTH,
           height: IMAGE_HEIGHT,
           style: {

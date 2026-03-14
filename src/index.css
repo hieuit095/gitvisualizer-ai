@@ -88,7 +88,12 @@
 }
 
 .react-flow__background {
-  background-color: hsl(240 20% 4%) !important;
+  background-color: hsl(var(--background)) !important;
+}
+
+/* React Flow dot color override */
+.react-flow__background pattern circle {
+  fill: hsl(var(--muted)) !important;
 }
 
 /* Animated grid background */

@@ -210,7 +210,7 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
                     <SyntaxHighlighter
                       language={detectLanguage(node.path)}
                       style={oneDark}
-                      customStyle={{ margin: 0, padding: "12px", fontSize: "11px", background: "hsl(240, 15%, 6%)" }}
+                      customStyle={{ margin: 0, padding: "12px", fontSize: "11px", background: "hsl(var(--background))" }}
                     >
                       {displaySnippet}
                     </SyntaxHighlighter>
