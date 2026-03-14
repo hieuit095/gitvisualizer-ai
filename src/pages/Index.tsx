@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { GitBranch, Sparkles, ArrowRight, Github, Loader2, Lock } from "lucide-react";
+import { GitBranch, Sparkles, ArrowRight, Github, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
@@ -11,7 +11,6 @@ const GITHUB_URL_REGEX = /^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/;
 
 const Index = () => {
   const [url, setUrl] = useState("");
-  const [isValidating, setIsValidating] = useState(false);
   const navigate = useNavigate();
 
   const handleAnalyze = () => {
