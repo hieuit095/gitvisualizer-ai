@@ -1,4 +1,5 @@
-import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { createServer } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { parse as parseUrl } from "node:url";
 import { parse as parseQs } from "node:querystring";
 import routeApiRequest from "./router.js";
@@ -8,15 +9,15 @@ const PORT = parseInt(process.env.API_PORT ?? "3001", 10);
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => { body += chunk.toString(); });
+    req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
 }
 
-function buildVercelRequest(req: IncomingMessage, body: string, parsedUrl: ReturnType<typeof parseUrl>) {
+function adaptRequest(req: IncomingMessage, body: string, parsedUrl: ReturnType<typeof parseUrl>) {
   const rawQuery = parsedUrl.query ?? "";
-  const query = typeof rawQuery === "string" ? parseQs(rawQuery) : rawQuery;
+  const qs = typeof rawQuery === "string" ? parseQs(rawQuery) : rawQuery;
 
   const pathParts = (parsedUrl.pathname ?? "")
     .replace(/^\/api\/?/, "")
@@ -28,45 +29,78 @@ function buildVercelRequest(req: IncomingMessage, body: string, parsedUrl: Retur
     try { return JSON.parse(body); } catch { return {}; }
   })();
 
-  return Object.assign(req, {
-    body: bodyParsed,
-    query: { ...query, path: pathParts },
-    cookies: {},
-  }) as any;
+  (req as any).body = bodyParsed;
+  (req as any).query = { ...qs, path: pathParts };
+  (req as any).cookies = {};
+
+  return req as any;
 }
 
-function buildVercelResponse(res: ServerResponse) {
-  const chunks: Buffer[] = [];
+function adaptResponse(res: ServerResponse) {
   let statusCode = 200;
-  const headers: Record<string, string | string[]> = {};
+  let headersSent = false;
 
-  const vres = Object.assign(res, {
-    status(code: number) { statusCode = code; res.statusCode = code; return vres; },
-    setHeader(name: string, value: string | string[]) { headers[name.toLowerCase()] = value; res.setHeader(name, value); return vres; },
-    json(data: unknown) {
-      if (!res.headersSent) {
-        res.setHeader("Content-Type", "application/json");
-        res.writeHead(statusCode);
-      }
-      res.end(JSON.stringify(data));
-      return vres;
-    },
-    write(chunk: string) { chunks.push(Buffer.from(chunk)); return true; },
-    end(data?: string) {
-      if (!res.headersSent) res.writeHead(statusCode);
-      for (const chunk of chunks) res.write(chunk);
-      if (data) res.write(data);
-      res.end();
-      return vres;
-    },
-  }) as any;
+  const ensureHeaders = () => {
+    if (!headersSent) {
+      headersSent = true;
+      res.writeHead(statusCode);
+    }
+  };
+
+  const vres: any = res;
+
+  vres.status = (code: number) => {
+    statusCode = code;
+    return vres;
+  };
+
+  const originalSetHeader = res.setHeader.bind(res);
+  vres.setHeader = (name: string, value: string | string[]) => {
+    originalSetHeader(name, value);
+    return vres;
+  };
+
+  vres.json = (data: unknown) => {
+    if (!res.headersSent && !headersSent) {
+      headersSent = true;
+      res.setHeader("Content-Type", "application/json");
+      res.writeHead(statusCode);
+    }
+    res.end(JSON.stringify(data));
+    return vres;
+  };
+
+  const originalWrite = res.write.bind(res);
+  vres.write = (chunk: string | Buffer) => {
+    ensureHeaders();
+    originalWrite(chunk);
+    return true;
+  };
+
+  const originalEnd = res.end.bind(res);
+  vres.end = (data?: string) => {
+    ensureHeaders();
+    if (data) {
+      originalEnd(data);
+    } else {
+      originalEnd();
+    }
+    return vres;
+  };
+
+  try {
+    Object.defineProperty(vres, "headersSent", {
+      configurable: true,
+      get: () => res.headersSent || headersSent,
+    });
+  } catch {
+    // headersSent may already be defined non-configurably; fallback is fine
+  }
 
   return vres;
 }
 
-const server = createServer(async (req, res) => {
-  const parsedUrl = parseUrl(req.url ?? "");
-
+const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
@@ -76,9 +110,10 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  const parsedUrl = parseUrl(req.url ?? "");
   const body = await readBody(req);
-  const vreq = buildVercelRequest(req, body, parsedUrl);
-  const vres = buildVercelResponse(res);
+  const vreq = adaptRequest(req, body, parsedUrl);
+  const vres = adaptResponse(res);
 
   try {
     await routeApiRequest(vreq, vres);
