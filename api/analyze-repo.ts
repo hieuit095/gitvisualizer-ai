@@ -9,6 +9,7 @@ import {
   isLikelySourceFile as isSourceFile,
   repoFilePriority as filePriority,
 } from "./lib/github.js";
+import { analyzeSourceFile, type FileStaticAnalysis } from "./lib/static-analysis.js";
 
 // ─── Smart Ignore Engine (same as Supabase version) ───────────────────
 
@@ -79,129 +80,23 @@ async function fetchWithConcurrency<T>(
 
 // ─── Code Skeleton ────────────────────────────────────────────────────
 
-interface SkeletonDeclaration {
-  kind: string; name: string; signature: string; exported: boolean; startLine: number; children?: SkeletonDeclaration[];
-}
-interface CodeSkeleton { declarations: SkeletonDeclaration[]; skeletonText: string; }
-
-const DECLARATION_PATTERNS: Array<{ pattern: RegExp; kind: string; nameGroup: number }> = [
-  { pattern: /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+([\w.]+))?(?:\s+implements\s+([\w,\s.]+))?/, kind: "class", nameGroup: 1 },
-  { pattern: /^(?:export\s+)?interface\s+(\w+)(?:\s+extends\s+([\w,\s.]+))?/, kind: "interface", nameGroup: 1 },
-  { pattern: /^(?:export\s+)?type\s+(\w+)\s*=/, kind: "type", nameGroup: 1 },
-  { pattern: /^(?:export\s+)?enum\s+(\w+)/, kind: "enum", nameGroup: 1 },
-  { pattern: /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*(\w+)\s*\(([^)]*)\)(?:\s*:\s*([^\s{]+))?/, kind: "function", nameGroup: 1 },
-  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=]+?))?\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*([^\s=>]+))?\s*=>/, kind: "function", nameGroup: 1 },
-  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=]+?))?\s*=\s*(?:async\s+)?function/, kind: "function", nameGroup: 1 },
-  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=;]+))?\s*[=;]/, kind: "const", nameGroup: 1 },
-  { pattern: /^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/, kind: "function", nameGroup: 1 },
-  { pattern: /^class\s+(\w+)(?:\(([^)]*)\))?/, kind: "class", nameGroup: 1 },
-  { pattern: /^func\s+(?:\(\s*\w+\s+\*?(\w+)\s*\)\s+)?(\w+)\s*\(([^)]*)\)(?:\s*(?:\(([^)]*)\)|(\S+)))?/, kind: "function", nameGroup: 2 },
-  { pattern: /^type\s+(\w+)\s+struct\s*\{/, kind: "class", nameGroup: 1 },
-  { pattern: /^type\s+(\w+)\s+interface\s*\{/, kind: "interface", nameGroup: 1 },
-  { pattern: /^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/, kind: "function", nameGroup: 1 },
-  { pattern: /^(?:pub\s+)?struct\s+(\w+)/, kind: "class", nameGroup: 1 },
-  { pattern: /^(?:pub\s+)?trait\s+(\w+)/, kind: "interface", nameGroup: 1 },
-  { pattern: /^(?:pub\s+)?enum\s+(\w+)/, kind: "enum", nameGroup: 1 },
-  { pattern: /^impl\s+(?:(\w+)\s+for\s+)?(\w+)/, kind: "impl", nameGroup: 2 },
-  { pattern: /^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?class\s+(\w+)/, kind: "class", nameGroup: 1 },
-];
-
-const METHOD_PATTERNS: RegExp[] = [
-  /^\s+(?:public|private|protected|static|async|abstract|readonly|\s)*(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*:\s*([^\s{;]+))?/,
-  /^\s+(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/,
-  /^\s+(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/,
-];
-
-function extractCodeSkeleton(content: string, _filePath: string): CodeSkeleton {
-  const lines = content.split("\n");
-  const declarations: SkeletonDeclaration[] = [];
-  const skeletonLines: string[] = [];
-  let braceDepth = 0;
-  let currentContainer: SkeletonDeclaration | null = null;
-  let containerStartDepth = 0;
-  let inBlockComment = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    if (inBlockComment) { if (trimmed.includes("*/")) inBlockComment = false; continue; }
-    if (trimmed.startsWith("/*") && !trimmed.includes("*/")) { inBlockComment = true; continue; }
-    const opens = (line.match(/\{/g) || []).length;
-    const closes = (line.match(/\}/g) || []).length;
-    if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("/*")) {
-      braceDepth += opens - closes; if (braceDepth < 0) braceDepth = 0; continue;
-    }
-    const isExported = /^export\s/.test(trimmed) || /^pub\s/.test(trimmed);
-
-    if (currentContainer && braceDepth > containerStartDepth) {
-      for (const mp of METHOD_PATTERNS) {
-        const mm = trimmed.match(mp);
-        if (mm) {
-          const methodName = mm[1]; const params = mm[2] ? mm[2].replace(/\s+/g, " ").trim() : ""; const ret = mm[3] || "";
-          const sig = `  ${methodName}(${params})${ret ? ": " + ret : ""}`;
-          if (!currentContainer.children) currentContainer.children = [];
-          currentContainer.children.push({ kind: "method", name: methodName, signature: sig, exported: false, startLine: i + 1 });
-          skeletonLines.push(sig); break;
-        }
-      }
-      braceDepth += opens - closes; if (braceDepth < 0) braceDepth = 0;
-      if (braceDepth <= containerStartDepth) { skeletonLines.push("}"); currentContainer = null; }
-      continue;
-    }
-
-    if (braceDepth <= 1) {
-      for (const dp of DECLARATION_PATTERNS) {
-        const dm = trimmed.match(dp.pattern);
-        if (dm) {
-          const name = dm[dp.nameGroup] || "anonymous";
-          if (dp.kind === "class" || dp.kind === "impl") {
-            const ext = dm[2] ? ` extends ${dm[2]}` : "";
-            const impl = dm[3] ? ` implements ${dm[3].trim()}` : "";
-            const signature = dp.kind === "impl"
-              ? (dm[1] ? `impl ${dm[1]} for ${name} {` : `impl ${name} {`)
-              : `class ${name}${ext}${impl} {`;
-            const decl: SkeletonDeclaration = { kind: dp.kind, name, signature, exported: isExported, startLine: i + 1, children: [] };
-            declarations.push(decl); currentContainer = decl; containerStartDepth = braceDepth;
-            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
-          } else if (dp.kind === "function") {
-            const params = (dm[2] || dm[3] || "").replace(/\s+/g, " ").trim();
-            const ret = dm[3] || dm[4] || "";
-            const signature = `function ${name}(${params})${ret ? ": " + ret : ""}`;
-            declarations.push({ kind: "function", name, signature, exported: isExported, startLine: i + 1 });
-            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
-          } else {
-            const signature = `${dp.kind} ${name}${dp.kind === "interface" && dm[2] ? ` extends ${dm[2].trim()}` : ""} ${dp.kind === "interface" || dp.kind === "enum" ? "{ ... }" : ""}`.trim();
-            declarations.push({ kind: dp.kind, name, signature, exported: isExported, startLine: i + 1 });
-            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
-          }
-          break;
-        }
-      }
-    }
-    braceDepth += opens - closes; if (braceDepth < 0) braceDepth = 0;
-    if (currentContainer && braceDepth <= containerStartDepth) { skeletonLines.push("}"); currentContainer = null; }
-  }
-  return { declarations, skeletonText: skeletonLines.join("\n") };
-}
-
 interface ShallowFileInfo {
   path: string; type: string; imports: string[]; exports: string[]; signatures: string[];
-  lineCount?: number; exportCount?: number; skeleton?: CodeSkeleton;
+  lineCount?: number; exportCount?: number; analysis?: FileStaticAnalysis;
 }
 
-function extractShallowInfo(path: string, content: string): ShallowFileInfo {
-  const imports: string[] = []; const exports: string[] = []; const signatures: string[] = [];
-  const importRegex = /(?:import\s+(?:(?:\{[^}]*\}|[\w*]+)\s+from\s+)?['"]([^'"]+)['"]|from\s+(\S+)\s+import|require\(['"]([^'"]+)['"]\))/g;
-  let match;
-  while ((match = importRegex.exec(content)) !== null) { const mod = match[1] || match[2] || match[3]; if (mod) imports.push(mod); }
-  const exportRegex = /export\s+(?:default\s+)?(?:function|class|const|let|var|interface|type|enum)\s+(\w+)/g;
-  while ((match = exportRegex.exec(content)) !== null) { if (match[1]) exports.push(match[1]); }
-  const sigRegex = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+(\w+)|class\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(|def\s+(\w+)|func\s+(\w+)|fn\s+(\w+))/gm;
-  while ((match = sigRegex.exec(content)) !== null) {
-    const name = match[1] || match[2] || match[3] || match[4] || match[5] || match[6];
-    if (name) signatures.push(name);
-  }
-  return { path, type: classifyFile(path), imports, exports, signatures, lineCount: content.split("\n").length, exportCount: exports.length };
+function extractShallowInfo(path: string, content: string, analysis: FileStaticAnalysis): ShallowFileInfo {
+  const signatures = analysis.topLevelSymbols.map((symbol) => symbol.name).filter(Boolean);
+  return {
+    path,
+    type: classifyFile(path),
+    imports: analysis.imports,
+    exports: analysis.exports,
+    signatures,
+    lineCount: content.split("\n").length,
+    exportCount: analysis.exports.length,
+    analysis,
+  };
 }
 
 function validateAnalysisResult(parsed: { nodes: any[]; edges: any[] }, knownPaths: Set<string>) {
@@ -290,10 +185,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const wasTruncated = sourceFiles.length > MAX_FILES;
 
     // Step 3: Extract
-    send({ type: "progress", step: "extract", message: `Extracting from ${limitedFiles.length} files...` });
+    send({ type: "progress", step: "extract", message: `Running Tree-sitter static analysis on ${limitedFiles.length} files...` });
     const contentTargets = limitedFiles.slice(0, 40);
     const fileContents: Record<string, string> = {};
-    const fileSkeletons: Record<string, CodeSkeleton> = {};
+    const fileAnalyses: Record<string, FileStaticAnalysis> = {};
 
     await fetchWithConcurrency(contentTargets, async (f: any) => {
       const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`, { headers: ghHeaders });
@@ -302,18 +197,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (d.content) {
           const decoded = decodeBase64Utf8(d.content);
           fileContents[f.path] = decoded;
-          fileSkeletons[f.path] = extractCodeSkeleton(decoded, f.path);
+          fileAnalyses[f.path] = analyzeSourceFile(decoded, f.path);
         }
       } else { await r.text(); }
     }, 5, 2);
 
     const shallowMap = limitedFiles.map((f: any) => {
       const content = fileContents[f.path];
-      if (content) { const info = extractShallowInfo(f.path, content); info.skeleton = fileSkeletons[f.path]; return info; }
+      if (content) return extractShallowInfo(f.path, content, fileAnalyses[f.path]);
       return { path: f.path, type: classifyFile(f.path), imports: [], exports: [], signatures: [] } as ShallowFileInfo;
     });
 
-    send({ type: "progress", step: "extract_done", message: `Extracted data from ${Object.keys(fileSkeletons).length} files` });
+    send({ type: "progress", step: "extract_done", message: `Built static skeletons for ${Object.keys(fileAnalyses).length} files` });
 
     // Step 4: AI analysis
     send({ type: "progress", step: "analyze", message: "AI analyzing architecture..." });
@@ -321,16 +216,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const shallowSummary = shallowMap.map(f => {
       let line = `- ${f.path} [${f.type}]`;
       if (f.lineCount) line += ` (${f.lineCount} lines)`;
+      if (f.analysis?.parser) line += ` parser: ${f.analysis.parser}`;
       if (f.exports.length) line += ` exports: ${f.exports.slice(0, 8).join(", ")}`;
       if (f.imports.length) line += ` imports: ${f.imports.slice(0, 8).join(", ")}`;
-      if (f.signatures.length) line += ` fns: ${f.signatures.slice(0, 6).join(", ")}`;
+      if (f.analysis?.classes?.length) line += ` classes: ${f.analysis.classes.slice(0, 4).join(", ")}`;
+      if (f.analysis?.functions?.length) line += ` functions: ${f.analysis.functions.slice(0, 6).join(", ")}`;
+      if (f.analysis?.variables?.length) line += ` variables: ${f.analysis.variables.slice(0, 6).join(", ")}`;
+      if (f.signatures.length && !f.analysis?.functions?.length) line += ` symbols: ${f.signatures.slice(0, 6).join(", ")}`;
       return line;
     }).join("\n");
 
-    const skeletonSection = Object.entries(fileSkeletons)
-      .filter(([, sk]) => sk.skeletonText.trim().length > 0)
+    const skeletonSection = Object.entries(fileAnalyses)
+      .filter(([, analysis]) => analysis.skeletonText.trim().length > 0)
       .slice(0, 30)
-      .map(([path, sk]) => `### ${path}\n\`\`\`\n${sk.skeletonText}\n\`\`\``)
+      .map(([path, analysis]) => `### ${path}\n\`\`\`\n${analysis.skeletonText}\n\`\`\``)
       .join("\n\n");
 
     const folders = new Set<string>();
@@ -348,13 +247,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const retryNote = retryErrors ? `\n\n## FIX THESE ERRORS:\n${retryErrors}\n` : "";
       return `Analyze this GitHub repository "${owner}/${repo}" and create a system architecture diagram.
 ${truncationNote}
-## Shallow Analysis
+## Static Analysis Assistant
+The following structure was generated with Tree-sitter parsers when possible, with a lightweight fallback for unsupported files.
+Treat it as the primary map of classes, functions, variables, imports, and containment relationships.
 ${shallowSummary}
 
 ## Key Directories
 ${[...folders].slice(0, 40).join("\n")}
 
 ## Code Skeletons
+These skeletons intentionally omit implementation details so you can reason about structure without reading internal logic.
 ${skeletonSection}
 ${retryNote}
 ## STRICT RULES

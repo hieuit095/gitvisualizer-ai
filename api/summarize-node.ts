@@ -6,6 +6,7 @@ import {
   extractOwnerRepo,
   getGitHubHeaders,
 } from "./lib/github.js";
+import { analyzeSourceFile } from "./lib/static-analysis.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -22,20 +23,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Try indexed chunks first
     const ragChunks = getChunksForFile(repoUrl, filePath);
 
-    // Fallback: fetch from GitHub
-    let fileContent = "";
-    if (ragChunks.length === 0) {
-      try {
-        const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, { headers: ghHeaders });
-        if (r.ok) {
-          const d = await r.json();
-          if (d.content) {
-            fileContent = decodeBase64Utf8(d.content);
-            if (fileContent.length > 8000) fileContent = fileContent.slice(0, 8000) + "\n// ... truncated";
-          }
-        } else await r.text();
-      } catch { }
-    }
+    // Fetch file content so Tree-sitter can provide structure even when RAG chunks exist.
+    let fullFileContent = "";
+    let displayFileContent = "";
+    try {
+      const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, { headers: ghHeaders });
+      if (r.ok) {
+        const d = await r.json();
+        if (d.content) {
+          fullFileContent = decodeBase64Utf8(d.content);
+          displayFileContent = fullFileContent.length > 8000
+            ? fullFileContent.slice(0, 8000) + "\n// ... truncated"
+            : fullFileContent;
+        }
+      } else await r.text();
+    } catch { }
+
+    const staticAnalysis = fullFileContent ? analyzeSourceFile(fullFileContent, filePath) : null;
 
     let contentSection: string;
     const chunkBoundaries: string[] = [];
@@ -45,15 +49,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return `### ${c.chunk_type}: ${c.chunk_name} [L${c.start_line}-L${c.end_line}]\n\`\`\`\n${c.content}\n\`\`\``;
       }).join("\n\n");
     } else {
-      contentSection = `\`\`\`\n${fileContent || "Content unavailable"}\n\`\`\``;
+      contentSection = `\`\`\`\n${displayFileContent || "Content unavailable"}\n\`\`\``;
     }
 
     const prompt = `Analyze this file from "${owner}/${repo}" in detail.
 ## File: ${filePath}
 ${nodeSummary ? `Brief summary: ${nodeSummary}` : ""}
+${staticAnalysis ? `## Static Analysis Assistant
+Parser: ${staticAnalysis.parser || "fallback"}
+Imports: ${staticAnalysis.imports.length ? staticAnalysis.imports.join(", ") : "none"}
+Exports: ${staticAnalysis.exports.length ? staticAnalysis.exports.join(", ") : "none"}
+Top-level symbols: ${staticAnalysis.topLevelSymbols.length ? staticAnalysis.topLevelSymbols.map(symbol => `${symbol.kind}:${symbol.name}`).join(", ") : "none"}
+
+## Skeleton
+\`\`\`
+${staticAnalysis.skeletonText || "No skeleton available"}
+\`\`\`
+` : ""}
 ## ${ragChunks.length > 0 ? "Code Chunks" : "Full Content"}
 ${contentSection}
 ${ragChunks.length > 0 ? `## Chunk Boundaries\n${chunkBoundaries.join("\n")}` : ""}
+
+Use the static-analysis section to understand structure first, and the code only for behavior details.
 
 Provide: summary, keyFunctions, tutorial, codeSnippet, references.`;
 

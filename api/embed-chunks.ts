@@ -9,6 +9,7 @@ import {
   isLikelySourceFile as isSourceFile,
   repoFilePriority as filePriority,
 } from "./lib/github.js";
+import { buildStaticChunks } from "./lib/static-analysis.js";
 
 interface CodeChunk {
   filePath: string; chunkIndex: number; chunkType: string; chunkName: string;
@@ -18,6 +19,19 @@ interface CodeChunk {
 const FUNC_PATTERN = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+(\w+)|class\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=|def\s+(\w+)|func\s+(\w+)|fn\s+(\w+))/;
 
 function chunkFile(content: string, filePath: string): CodeChunk[] {
+  const staticChunks = buildStaticChunks(content, filePath);
+  if (staticChunks.length > 0) {
+    return staticChunks.map((chunk, chunkIndex) => ({
+      filePath,
+      chunkIndex,
+      chunkType: chunk.chunkType,
+      chunkName: chunk.chunkName,
+      content: chunk.content,
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
+    }));
+  }
+
   const lines = content.split("\n");
   const chunks: CodeChunk[] = [];
   let currentChunk: string[] = [];

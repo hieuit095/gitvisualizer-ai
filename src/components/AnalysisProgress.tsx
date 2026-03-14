@@ -5,7 +5,7 @@ import type { ProgressEvent } from "@/types/repo";
 const defaultSteps = [
   { icon: GitBranch, label: "Fetching repository..." },
   { icon: Filter, label: "Applying smart filters..." },
-  { icon: FileCode, label: "Extracting imports & signatures..." },
+  { icon: FileCode, label: "Running Tree-sitter static analysis..." },
   { icon: Brain, label: "AI analyzing architecture..." },
   { icon: LayoutGrid, label: "Building diagram..." },
 ];
