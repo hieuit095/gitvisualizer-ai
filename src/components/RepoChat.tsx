@@ -171,6 +171,11 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
 
             try {
               const parsed = JSON.parse(jsonStr);
+              // Check for search metadata event
+              if (parsed.searchMeta) {
+                currentSearchMeta = parsed.searchMeta;
+                continue;
+              }
               const content = parsed.choices?.[0]?.delta?.content as string | undefined;
               if (content) upsertAssistant(content);
             } catch {
