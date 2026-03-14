@@ -415,10 +415,10 @@ serve(async (req) => {
             message: `Extracting imports & signatures from ${limitedFiles.length} files...`,
           });
 
-          const contentTargets = limitedFiles.slice(0, 25);
+          const contentTargets = limitedFiles.slice(0, 40);
           const fileContents: Record<string, string> = {};
 
-          // Use concurrency-limited fetching (5 at a time with retry)
+          // Use concurrency-limited fetching — fetch headers only (Layer 2)
           await fetchWithConcurrency(contentTargets, async (f) => {
             const res = await fetch(
               `https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`,
@@ -428,7 +428,7 @@ serve(async (req) => {
               const data = await res.json();
               if (data.content) {
                 const decoded = decodeBase64Utf8(data.content);
-                fileContents[f.path] = decoded.slice(0, 3000);
+                fileContents[f.path] = extractFileHeader(decoded, 60);
               }
             } else {
               const status = res.status;
