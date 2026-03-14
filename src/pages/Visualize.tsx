@@ -90,6 +90,7 @@ const VisualizeInner = () => {
   const [direction, setDirection] = useState<"TB" | "LR">("TB");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [repoMeta, setRepoMeta] = useState<{ totalFiles?: number; wasTruncated?: boolean; filteredOut?: number }>({});
+  const [askAboutNode, setAskAboutNode] = useState<string | null>(null);
 
   const runAnalysis = useCallback(async () => {
     if (!repoUrl) {
