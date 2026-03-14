@@ -280,7 +280,7 @@ serve(async (req) => {
       try {
         const { data: cached } = await db
           .from("analysis_cache")
-          .select("result, repo_name")
+          .select("id, result, repo_name")
           .eq("repo_url", repoUrl)
           .gt("expires_at", new Date().toISOString())
           .order("created_at", { ascending: false })
@@ -293,7 +293,7 @@ serve(async (req) => {
           const cacheStream = new ReadableStream({
             start(controller) {
               controller.enqueue(encoder.encode(JSON.stringify({ type: "progress", step: "done", message: "Loaded from cache" }) + "\n"));
-              controller.enqueue(encoder.encode(JSON.stringify({ type: "result", data: { ...cached.result, cached: true } }) + "\n"));
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "result", data: { ...cached.result, cached: true, _cacheId: cached.id } }) + "\n"));
               controller.close();
             },
           });
