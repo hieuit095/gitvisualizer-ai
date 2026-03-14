@@ -14,7 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      analysis_cache: {
+        Row: {
+          created_at: string
+          edge_count: number | null
+          expires_at: string
+          id: string
+          node_count: number | null
+          repo_name: string
+          repo_url: string
+          result: Json
+          total_files: number | null
+          was_truncated: boolean | null
+        }
+        Insert: {
+          created_at?: string
+          edge_count?: number | null
+          expires_at?: string
+          id?: string
+          node_count?: number | null
+          repo_name: string
+          repo_url: string
+          result: Json
+          total_files?: number | null
+          was_truncated?: boolean | null
+        }
+        Update: {
+          created_at?: string
+          edge_count?: number | null
+          expires_at?: string
+          id?: string
+          node_count?: number | null
+          repo_name?: string
+          repo_url?: string
+          result?: Json
+          total_files?: number | null
+          was_truncated?: boolean | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
