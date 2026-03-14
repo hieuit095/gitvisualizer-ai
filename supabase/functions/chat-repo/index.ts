@@ -187,7 +187,28 @@ Before answering, mentally identify which retrieved chunks (if any) are relevant
       throw new Error(`AI chat failed (${response.status})`);
     }
 
-    return new Response(response.body, {
+    // Prepend search metadata event, then pipe AI stream
+    const metaEvent = `data: ${JSON.stringify({ searchMeta: { method: searchMethod, chunks: chunksRetrieved } })}\n\n`;
+    const metaBytes = new TextEncoder().encode(metaEvent);
+    const aiStream = response.body!;
+
+    const combinedStream = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(metaBytes);
+        const reader = aiStream.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(combinedStream, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
