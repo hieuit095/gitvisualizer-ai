@@ -36,68 +36,59 @@ function adaptRequest(req: IncomingMessage, body: string, parsedUrl: ReturnType<
   return req as any;
 }
 
-function adaptResponse(res: ServerResponse) {
-  let statusCode = 200;
-  let headersSent = false;
+function adaptResponse(rawRes: ServerResponse) {
+  let pendingStatus = 200;
 
-  const ensureHeaders = () => {
-    if (!headersSent) {
-      headersSent = true;
-      res.writeHead(statusCode);
+  const rawWrite = rawRes.write.bind(rawRes);
+  const rawEnd = rawRes.end.bind(rawRes);
+  const rawSetHeader = rawRes.setHeader.bind(rawRes);
+  const rawWriteHead = rawRes.writeHead.bind(rawRes);
+
+  function ensureHead() {
+    if (!rawRes.headersSent) {
+      rawWriteHead(pendingStatus);
     }
-  };
-
-  const vres: any = res;
-
-  vres.status = (code: number) => {
-    statusCode = code;
-    return vres;
-  };
-
-  const originalSetHeader = res.setHeader.bind(res);
-  vres.setHeader = (name: string, value: string | string[]) => {
-    originalSetHeader(name, value);
-    return vres;
-  };
-
-  vres.json = (data: unknown) => {
-    if (!res.headersSent && !headersSent) {
-      headersSent = true;
-      res.setHeader("Content-Type", "application/json");
-      res.writeHead(statusCode);
-    }
-    res.end(JSON.stringify(data));
-    return vres;
-  };
-
-  const originalWrite = res.write.bind(res);
-  vres.write = (chunk: string | Buffer) => {
-    ensureHeaders();
-    originalWrite(chunk);
-    return true;
-  };
-
-  const originalEnd = res.end.bind(res);
-  vres.end = (data?: string) => {
-    ensureHeaders();
-    if (data) {
-      originalEnd(data);
-    } else {
-      originalEnd();
-    }
-    return vres;
-  };
-
-  try {
-    Object.defineProperty(vres, "headersSent", {
-      configurable: true,
-      get: () => res.headersSent || headersSent,
-    });
-  } catch {
-    // headersSent may already be defined non-configurably; fallback is fine
   }
 
-  return vres;
+  const proxy: any = {
+    status(code: number) {
+      pendingStatus = code;
+      return proxy;
+    },
+    setHeader(name: string, value: string | string[]) {
+      if (!rawRes.headersSent) {
+        rawSetHeader(name, value);
+      }
+      return proxy;
+    },
+    json(data: unknown) {
+      if (!rawRes.headersSent) {
+        rawSetHeader("Content-Type", "application/json");
+        rawWriteHead(pendingStatus);
+      }
+      rawEnd(JSON.stringify(data));
+      return proxy;
+    },
+    write(chunk: string | Buffer) {
+      ensureHead();
+      rawWrite(chunk);
+      return true;
+    },
+    end(data?: string | Buffer) {
+      ensureHead();
+      if (data != null) {
+        rawEnd(data);
+      } else {
+        rawEnd();
+      }
+      return proxy;
+    },
+    get headersSent() {
+      return rawRes.headersSent;
+    },
+  };
+
+  return proxy;
 }
 
 const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -118,10 +109,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   try {
     await routeApiRequest(vreq, vres);
   } catch (err) {
-    console.error("dev-server error:", err);
+    const message = err instanceof Error ? err.message : String(err) || "Internal server error";
+    console.error("[dev-server] Unhandled error:", message, err);
     if (!res.headersSent) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Internal server error" }));
+      res.setHeader("Content-Type", "application/json");
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: message }));
     }
   }
 });

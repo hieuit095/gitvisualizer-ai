@@ -520,12 +520,13 @@ Generate edges with: id, source, target, type, label`;
 
     send({ type: "result", data: result });
     res.end();
-  } catch (error: any) {
-    console.error("analyze-repo error:", error);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error) || "Unknown error";
+    console.error("analyze-repo error:", message, error);
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || "Unknown error" });
+      res.status(500).json({ error: message });
     } else {
-      res.write(JSON.stringify({ type: "error", error: error.message || "Unknown error" }) + "\n");
+      res.write(JSON.stringify({ type: "error", error: message }) + "\n");
       res.end();
     }
   }
