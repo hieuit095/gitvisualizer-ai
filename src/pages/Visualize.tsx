@@ -17,6 +17,7 @@ import NodeSearch from "@/components/NodeSearch";
 import { Button } from "@/components/ui/button";
 import FileNode from "@/components/nodes/FileNode";
 import FolderNode from "@/components/nodes/FolderNode";
+import GroupNode from "@/components/nodes/GroupNode";
 import InfoPanel from "@/components/InfoPanel";
 import AnalysisProgress from "@/components/AnalysisProgress";
 import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
@@ -25,7 +26,7 @@ import { useRepoAnalysis } from "@/hooks/useRepoAnalysis";
 import { useGraphLayout } from "@/hooks/useGraphLayout";
 import type { RepoNode, NodeDetail } from "@/types/repo";
 
-const nodeTypes = { fileNode: FileNode, folderNode: FolderNode };
+const nodeTypes = { fileNode: FileNode, folderNode: FolderNode, groupNode: GroupNode };
 
 const VisualizeInner = () => {
   const [searchParams] = useSearchParams();
