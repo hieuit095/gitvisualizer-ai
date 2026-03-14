@@ -185,8 +185,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       embeddingsGenerated: embeddingsAvailable,
       embeddingCount: embeddingMap.size,
     });
-  } catch (e: any) {
-    console.error("embed-chunks error:", e);
-    res.status(500).json({ error: e.message || "Unknown error" });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e) || "Unknown error";
+    console.error("embed-chunks error:", message, e);
+    res.status(500).json({ error: message });
   }
 }

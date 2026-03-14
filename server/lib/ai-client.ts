@@ -49,11 +49,15 @@ export async function chatCompletion(
     if (options.tool_choice) body.tool_choice = options.tool_choice;
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+
   return fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: buildAiHeaders(config),
     body: JSON.stringify(body),
-  });
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeout));
 }
 
 export async function createEmbeddings(

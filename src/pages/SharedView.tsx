@@ -27,7 +27,12 @@ const SharedView = () => {
         }
 
         const data = await response.json();
-        if (data?.repo_url && data?.result) {
+        if (!data?.repo_url) {
+          setError("Invalid shared analysis data");
+          setLoading(false);
+          return;
+        }
+        if (data.result) {
           cacheAnalysis(data.repo_url, data.result as AnalysisResult);
         }
         navigate(`/visualize?repo=${encodeURIComponent(data.repo_url)}`, {

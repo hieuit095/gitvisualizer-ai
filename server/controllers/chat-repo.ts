@@ -98,9 +98,10 @@ ${ragContext}
     }
 
     res.end();
-  } catch (e: any) {
-    console.error("chat-repo error:", e);
-    if (!res.headersSent) res.status(500).json({ error: e.message || "Unknown error" });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e) || "Unknown error";
+    console.error("chat-repo error:", message, e);
+    if (!res.headersSent) res.status(500).json({ error: message });
     else res.end();
   }
 }

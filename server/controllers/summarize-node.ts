@@ -138,8 +138,9 @@ Provide: summary, keyFunctions, tutorial, codeSnippet, references.`;
     if (!structuredArguments) throw new Error("AI did not return structured data");
 
     res.json(JSON.parse(structuredArguments));
-  } catch (e: any) {
-    console.error("summarize-node error:", e);
-    res.status(500).json({ error: e.message || "Unknown error" });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e) || "Unknown error";
+    console.error("summarize-node error:", message, e);
+    res.status(500).json({ error: message });
   }
 }

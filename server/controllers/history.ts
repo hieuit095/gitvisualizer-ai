@@ -10,7 +10,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const repoUrl = req.query.repo as string;
     if (!repoUrl) return res.status(400).json({ error: "repo query param is required" });
     res.json(getHistory(repoUrl));
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e) || "Unknown error";
+    res.status(500).json({ error: message });
   }
 }

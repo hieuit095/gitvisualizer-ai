@@ -18,7 +18,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     res.json({ repo_url: row.repo_url, result: row.result });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e) || "Unknown error";
+    res.status(500).json({ error: message });
   }
 }

@@ -14,7 +14,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!row) return res.status(404).json({ error: "Not found" });
 
     res.json({ id: row.id, result: row.result });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e) || "Unknown error";
+    res.status(500).json({ error: message });
   }
 }
