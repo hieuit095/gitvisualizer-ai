@@ -29,6 +29,7 @@ export function useRepoAnalysis(repoUrl: string) {
     wasTruncated?: boolean;
     filteredOut?: number;
   }>({});
+  const [indexingStatus, setIndexingStatus] = useState<"idle" | "indexing" | "done">("idle");
 
   const applyResult = useCallback((result: AnalysisResult) => {
     setProgressStep(4);
