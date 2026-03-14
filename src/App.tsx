@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Index from "./pages/Index.tsx";
 import Visualize from "./pages/Visualize.tsx";
+import SharedView from "./pages/SharedView.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -20,6 +21,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/visualize" element={<Visualize />} />
+            <Route path="/share/:id" element={<SharedView />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </ErrorBoundary>

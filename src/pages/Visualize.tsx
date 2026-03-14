@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   ReactFlow,
@@ -13,20 +13,24 @@ import "@xyflow/react/dist/style.css";
 import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle, Lock } from "lucide-react";
 import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
+import ShareButton from "@/components/ShareButton";
 import NodeSearch from "@/components/NodeSearch";
 import { Button } from "@/components/ui/button";
 import FileNode from "@/components/nodes/FileNode";
 import FolderNode from "@/components/nodes/FolderNode";
 import GroupNode from "@/components/nodes/GroupNode";
+import TooltipEdge from "@/components/edges/TooltipEdge";
 import InfoPanel from "@/components/InfoPanel";
 import AnalysisProgress from "@/components/AnalysisProgress";
 import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
 import RepoChat from "@/components/RepoChat";
 import { useRepoAnalysis } from "@/hooks/useRepoAnalysis";
 import { useGraphLayout } from "@/hooks/useGraphLayout";
+import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import type { RepoNode, NodeDetail } from "@/types/repo";
 
 const nodeTypes = { fileNode: FileNode, folderNode: FolderNode, groupNode: GroupNode };
+const edgeTypes = { tooltipEdge: TooltipEdge };
 
 const VisualizeInner = () => {
   const [searchParams] = useSearchParams();
@@ -61,6 +65,18 @@ const VisualizeInner = () => {
     setSelectedNode(node.data as unknown as RepoNode);
   }, []);
 
+  // Keyboard navigation
+  const handleKeySelectNode = useCallback((node: Node) => {
+    setSelectedNode(node.data as unknown as RepoNode);
+  }, []);
+
+  useKeyboardNavigation({
+    nodes,
+    onSelectNode: handleKeySelectNode,
+    onDeselectNode: useCallback(() => setSelectedNode(null), []),
+    selectedNodeId: selectedNode?.id ?? null,
+  });
+
   const onNodeDetailLoadedWrapper = useCallback(
     (nodeId: string, detail: NodeDetail) => {
       handleNodeDetailLoaded(nodeId, detail);
@@ -71,6 +87,11 @@ const VisualizeInner = () => {
     },
     [handleNodeDetailLoaded]
   );
+
+  // Get cache ID for share links
+  const cacheId = useMemo(() => {
+    return analysisResult ? (analysisResult as any)._cacheId : undefined;
+  }, [analysisResult]);
 
   if (loading) {
     return <AnalysisProgress currentStep={progressStep} progressEvents={progressEvents} />;
@@ -151,6 +172,7 @@ const VisualizeInner = () => {
           >
             {direction === "TB" ? <ArrowRightLeft className="h-4 w-4" /> : <ArrowDownUp className="h-4 w-4" />}
           </Button>
+          <ShareButton repoUrl={repoUrl} cacheId={cacheId} />
           <ExportButton repoName={repoName} />
         </div>
       </div>
@@ -162,7 +184,8 @@ const VisualizeInner = () => {
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
-        defaultEdgeOptions={{ type: "smoothstep" }}
+        edgeTypes={edgeTypes}
+        defaultEdgeOptions={{ type: "tooltipEdge" }}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}
@@ -172,7 +195,7 @@ const VisualizeInner = () => {
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} className="!bg-background [&>pattern>circle]:fill-muted" />
         <Controls />
         <MiniMap
-          nodeColor={(n) => (n.type === "folderNode" ? "var(--color-secondary)" : "var(--color-primary)")}
+          nodeColor={(n) => (n.type === "folderNode" || n.type === "groupNode" ? "var(--color-secondary)" : "var(--color-primary)")}
           maskColor="rgba(0, 0, 0, 0.7)"
           pannable
           zoomable
