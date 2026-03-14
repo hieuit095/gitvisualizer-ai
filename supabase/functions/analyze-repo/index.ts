@@ -584,6 +584,18 @@ Focus on architecture structure and relationships. Keep summaries to 1 sentence 
           const aiData = await aiRes.json();
           const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
 
+          // Extract token usage metrics
+          const usage = aiData.usage;
+          if (usage) {
+            send({
+              type: "progress", step: "usage",
+              message: `AI used ${usage.prompt_tokens?.toLocaleString() ?? "?"} input / ${usage.completion_tokens?.toLocaleString() ?? "?"} output tokens`,
+              promptTokens: usage.prompt_tokens,
+              completionTokens: usage.completion_tokens,
+              totalTokens: usage.total_tokens,
+            });
+          }
+
           if (!toolCall?.function?.arguments) {
             console.error("No tool call in AI response:", JSON.stringify(aiData));
             throw new Error("AI did not return structured data");

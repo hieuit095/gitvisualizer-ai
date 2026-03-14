@@ -26,6 +26,9 @@ export interface ProgressEvent {
   totalFiles?: number;
   filteredOut?: number;
   kept?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 export interface AnalysisResult {

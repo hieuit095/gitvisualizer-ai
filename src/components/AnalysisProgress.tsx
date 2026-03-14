@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { GitBranch, Search, Brain, LayoutGrid, Check, Filter, FileCode } from "lucide-react";
+import { GitBranch, Search, Brain, LayoutGrid, Check, Filter, FileCode, Zap } from "lucide-react";
 import type { ProgressEvent } from "@/types/repo";
 
 const defaultSteps = [
@@ -16,13 +16,16 @@ interface AnalysisProgressProps {
 }
 
 const AnalysisProgress = ({ currentStep, progressEvents = [] }: AnalysisProgressProps) => {
+  // Extract token usage from events
+  const usageEvent = progressEvents.find(e => e.step === "usage");
+
   // Derive step labels from live events when available
   const steps = defaultSteps.map((step, i) => {
     const eventMap: Record<number, string[]> = {
       0: ["fetch", "fetch_done"],
       1: ["filter", "filter_done"],
       2: ["extract", "extract_done"],
-      3: ["analyze"],
+      3: ["analyze", "usage"],
       4: ["done"],
     };
     const relevantEvents = progressEvents.filter(e => eventMap[i]?.includes(e.step));
@@ -93,6 +96,44 @@ const AnalysisProgress = ({ currentStep, progressEvents = [] }: AnalysisProgress
             </motion.div>
           );
         })}
+
+        {/* Token Usage Metrics Card */}
+        <AnimatePresence>
+          {usageEvent && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="mt-6 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="h-3.5 w-3.5 text-primary" />
+                <span className="text-xs font-semibold text-foreground">Token Usage</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center">
+                  <div className="text-lg font-bold font-mono text-primary">
+                    {usageEvent.promptTokens?.toLocaleString() ?? "—"}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Input</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold font-mono text-primary">
+                    {usageEvent.completionTokens?.toLocaleString() ?? "—"}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Output</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold font-mono text-foreground">
+                    {usageEvent.totalTokens?.toLocaleString() ?? "—"}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Total</div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
