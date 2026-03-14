@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageCircle, X, Send, Loader2, Bot, User, Sparkles, FileCode } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Bot, User, Sparkles, FileCode, Search, Database } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
