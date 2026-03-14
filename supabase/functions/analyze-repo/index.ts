@@ -201,29 +201,235 @@ function filePriority(path: string): number {
   return score;
 }
 
-// ─── File Header Extraction (Layer 2) ──────────────────────────────────
+// ─── Code Skeleton Extractor (AST-like static analysis) ────────────────
 
-function extractFileHeader(content: string, maxLines = 60): string {
+interface SkeletonDeclaration {
+  kind: string;       // "function" | "class" | "interface" | "type" | "enum" | "const" | "variable" | "method" | "property"
+  name: string;
+  signature: string;  // compact one-liner: "function foo(a, b): string"
+  exported: boolean;
+  startLine: number;
+  children?: SkeletonDeclaration[];  // methods inside a class
+}
+
+interface CodeSkeleton {
+  declarations: SkeletonDeclaration[];
+  skeletonText: string;  // human-readable compact skeleton
+}
+
+// Regex patterns for multi-language support
+const DECLARATION_PATTERNS: Array<{ pattern: RegExp; kind: string; nameGroup: number }> = [
+  // TypeScript / JavaScript
+  { pattern: /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+([\w.]+))?(?:\s+implements\s+([\w,\s.]+))?/, kind: "class", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?interface\s+(\w+)(?:\s+extends\s+([\w,\s.]+))?/, kind: "interface", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?type\s+(\w+)\s*=/, kind: "type", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?enum\s+(\w+)/, kind: "enum", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*(\w+)\s*\(([^)]*)\)(?:\s*:\s*([^\s{]+))?/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=]+?))?\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*([^\s=>]+))?\s*=>/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=]+?))?\s*=\s*(?:async\s+)?function/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=;]+))?\s*[=;]/, kind: "const", nameGroup: 1 },
+  // Python
+  { pattern: /^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/, kind: "function", nameGroup: 1 },
+  { pattern: /^class\s+(\w+)(?:\(([^)]*)\))?/, kind: "class", nameGroup: 1 },
+  // Go
+  { pattern: /^func\s+(?:\(\s*\w+\s+\*?(\w+)\s*\)\s+)?(\w+)\s*\(([^)]*)\)(?:\s*(?:\(([^)]*)\)|(\S+)))?/, kind: "function", nameGroup: 2 },
+  { pattern: /^type\s+(\w+)\s+struct\s*\{/, kind: "class", nameGroup: 1 },
+  { pattern: /^type\s+(\w+)\s+interface\s*\{/, kind: "interface", nameGroup: 1 },
+  // Rust
+  { pattern: /^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:pub\s+)?struct\s+(\w+)/, kind: "class", nameGroup: 1 },
+  { pattern: /^(?:pub\s+)?trait\s+(\w+)/, kind: "interface", nameGroup: 1 },
+  { pattern: /^(?:pub\s+)?enum\s+(\w+)/, kind: "enum", nameGroup: 1 },
+  { pattern: /^impl\s+(?:(\w+)\s+for\s+)?(\w+)/, kind: "impl", nameGroup: 2 },
+  // Java / Kotlin
+  { pattern: /^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/, kind: "class", nameGroup: 1 },
+];
+
+const METHOD_PATTERNS: RegExp[] = [
+  // TS/JS methods
+  /^\s+(?:public|private|protected|static|async|abstract|readonly|\s)*(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*:\s*([^\s{;]+))?/,
+  // Python methods
+  /^\s+(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/,
+  // Go receiver methods (handled at top level)
+  // Rust impl methods
+  /^\s+(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/,
+];
+
+function extractCodeSkeleton(content: string, filePath: string): CodeSkeleton {
   const lines = content.split("\n");
-  const header: string[] = [];
+  const declarations: SkeletonDeclaration[] = [];
+  const skeletonLines: string[] = [];
+
   let braceDepth = 0;
-  for (const line of lines) {
-    if (header.length >= maxLines) break;
+  let currentContainer: SkeletonDeclaration | null = null;
+  let containerStartDepth = 0;
+  let inBlockComment = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
-    const opens = (line.match(/{/g) || []).length;
-    const closes = (line.match(/}/g) || []).length;
-    // Keep line if we're at top level, or it's a declaration/comment/blank
-    if (
-      braceDepth <= 1 ||
-      /^(import|export|interface|type|class|enum|const|let|var|function|async|abstract|public|private|protected|def |fn |func )/.test(trimmed) ||
-      trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*") || trimmed === ""
-    ) {
-      header.push(line);
+
+    // Track block comments
+    if (inBlockComment) {
+      if (trimmed.includes("*/")) inBlockComment = false;
+      continue;
     }
+    if (trimmed.startsWith("/*") && !trimmed.includes("*/")) {
+      inBlockComment = true;
+      continue;
+    }
+
+    // Skip empty lines and single-line comments for parsing (but count braces)
+    const opens = (line.match(/\{/g) || []).length;
+    const closes = (line.match(/\}/g) || []).length;
+
+    if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("/*")) {
+      braceDepth += opens - closes;
+      if (braceDepth < 0) braceDepth = 0;
+      continue;
+    }
+
+    const isExported = /^export\s/.test(trimmed) || /^pub\s/.test(trimmed);
+
+    // Check if we're inside a class/interface — look for methods
+    if (currentContainer && braceDepth > containerStartDepth) {
+      for (const mp of METHOD_PATTERNS) {
+        const mm = trimmed.match(mp);
+        if (mm) {
+          const methodName = mm[1];
+          const params = mm[2] ? mm[2].replace(/\s+/g, " ").trim() : "";
+          const ret = mm[3] || "";
+          const sig = `  ${methodName}(${params})${ret ? ": " + ret : ""}`;
+          if (!currentContainer.children) currentContainer.children = [];
+          currentContainer.children.push({
+            kind: "method", name: methodName, signature: sig,
+            exported: false, startLine: i + 1,
+          });
+          skeletonLines.push(sig);
+          break;
+        }
+      }
+      braceDepth += opens - closes;
+      if (braceDepth < 0) braceDepth = 0;
+      if (braceDepth <= containerStartDepth) {
+        skeletonLines.push("}");
+        currentContainer = null;
+      }
+      continue;
+    }
+
+    // Top-level declarations
+    if (braceDepth <= 1) {
+      for (const dp of DECLARATION_PATTERNS) {
+        const dm = trimmed.match(dp.pattern);
+        if (dm) {
+          const name = dm[dp.nameGroup] || "anonymous";
+          let signature = "";
+
+          if (dp.kind === "class") {
+            const ext = dm[2] ? ` extends ${dm[2]}` : "";
+            const impl = dm[3] ? ` implements ${dm[3].trim()}` : "";
+            signature = `class ${name}${ext}${impl} {`;
+            const decl: SkeletonDeclaration = {
+              kind: "class", name, signature, exported: isExported, startLine: i + 1, children: [],
+            };
+            declarations.push(decl);
+            currentContainer = decl;
+            containerStartDepth = braceDepth;
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "interface") {
+            const ext = dm[2] ? ` extends ${dm[2].trim()}` : "";
+            signature = `interface ${name}${ext} { ... }`;
+            declarations.push({ kind: "interface", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "function") {
+            const params = (dm[2] || dm[3] || "").replace(/\s+/g, " ").trim();
+            const ret = dm[3] || dm[4] || "";
+            signature = `function ${name}(${params})${ret ? ": " + ret : ""}`;
+            declarations.push({ kind: "function", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "type") {
+            signature = `type ${name} = ...`;
+            declarations.push({ kind: "type", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "enum") {
+            signature = `enum ${name} { ... }`;
+            declarations.push({ kind: "enum", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "const") {
+            const typeAnnotation = dm[2] ? `: ${dm[2].trim()}` : "";
+            signature = `const ${name}${typeAnnotation}`;
+            declarations.push({ kind: "const", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "impl") {
+            const traitName = dm[1];
+            signature = traitName ? `impl ${traitName} for ${name} {` : `impl ${name} {`;
+            const decl: SkeletonDeclaration = {
+              kind: "impl", name, signature, exported: false, startLine: i + 1, children: [],
+            };
+            declarations.push(decl);
+            currentContainer = decl;
+            containerStartDepth = braceDepth;
+            skeletonLines.push(signature);
+          }
+          break;
+        }
+      }
+    }
+
     braceDepth += opens - closes;
     if (braceDepth < 0) braceDepth = 0;
+    if (currentContainer && braceDepth <= containerStartDepth) {
+      skeletonLines.push("}");
+      currentContainer = null;
+    }
   }
-  return header.join("\n");
+
+  return {
+    declarations,
+    skeletonText: skeletonLines.join("\n"),
+  };
+}
+
+// ─── Validation & Retry Logic ──────────────────────────────────────────
+
+interface ValidationError {
+  type: "invalid_path" | "duplicate_id" | "invalid_edge_ref";
+  message: string;
+}
+
+function validateAnalysisResult(
+  parsed: { nodes: any[]; edges: any[] },
+  knownPaths: Set<string>,
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const nodeIds = new Set<string>();
+
+  for (const node of parsed.nodes) {
+    if (!knownPaths.has(node.path) && !knownPaths.has(node.path + "/")) {
+      // Allow folder nodes whose path is a prefix of known paths
+      const isFolder = node.type === "folder";
+      const isFolderPrefix = isFolder && [...knownPaths].some(p => p.startsWith(node.path + "/") || p.startsWith(node.path));
+      if (!isFolderPrefix) {
+        errors.push({ type: "invalid_path", message: `Node "${node.id}" references path "${node.path}" not in file list` });
+      }
+    }
+    if (nodeIds.has(node.id)) {
+      errors.push({ type: "duplicate_id", message: `Duplicate node id "${node.id}"` });
+    }
+    nodeIds.add(node.id);
+  }
+
+  for (const edge of parsed.edges) {
+    if (!nodeIds.has(edge.source)) {
+      errors.push({ type: "invalid_edge_ref", message: `Edge "${edge.id}" source "${edge.source}" not found in nodes` });
+    }
+    if (!nodeIds.has(edge.target)) {
+      errors.push({ type: "invalid_edge_ref", message: `Edge "${edge.id}" target "${edge.target}" not found in nodes` });
+    }
+  }
+
+  return errors;
 }
 
 // ─── Pass 1: Import/Export Extraction ──────────────────────────────────
@@ -236,6 +442,7 @@ interface ShallowFileInfo {
   signatures: string[];
   lineCount?: number;
   exportCount?: number;
+  skeleton?: CodeSkeleton;
 }
 
 function extractShallowInfo(path: string, content: string): ShallowFileInfo {
@@ -417,8 +624,9 @@ serve(async (req) => {
 
           const contentTargets = limitedFiles.slice(0, 40);
           const fileContents: Record<string, string> = {};
+          const fileSkeletons: Record<string, CodeSkeleton> = {};
 
-          // Use concurrency-limited fetching — fetch headers only (Layer 2)
+          // Use concurrency-limited fetching — extract skeletons (Layer 2)
           await fetchWithConcurrency(contentTargets, async (f) => {
             const res = await fetch(
               `https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`,
@@ -428,7 +636,8 @@ serve(async (req) => {
               const data = await res.json();
               if (data.content) {
                 const decoded = decodeBase64Utf8(data.content);
-                fileContents[f.path] = extractFileHeader(decoded, 60);
+                fileContents[f.path] = decoded;
+                fileSkeletons[f.path] = extractCodeSkeleton(decoded, f.path);
               }
             } else {
               const status = res.status;
@@ -443,13 +652,17 @@ serve(async (req) => {
 
           const shallowMap: ShallowFileInfo[] = limitedFiles.map(f => {
             const content = fileContents[f.path];
-            if (content) return extractShallowInfo(f.path, content);
+            if (content) {
+              const info = extractShallowInfo(f.path, content);
+              info.skeleton = fileSkeletons[f.path];
+              return info;
+            }
             return { path: f.path, type: classifyFile(f.path), imports: [], exports: [], signatures: [] };
           });
 
           send({
             type: "progress", step: "extract_done",
-            message: `Extracted ${shallowMap.reduce((s, f) => s + f.imports.length, 0)} imports and ${shallowMap.reduce((s, f) => s + f.signatures.length, 0)} signatures`,
+            message: `Extracted ${shallowMap.reduce((s, f) => s + f.imports.length, 0)} imports, ${shallowMap.reduce((s, f) => s + f.signatures.length, 0)} signatures, ${Object.keys(fileSkeletons).length} skeletons`,
           });
 
           // ─── Step 4: Pass 2 — AI structural analysis ──────
@@ -467,9 +680,11 @@ serve(async (req) => {
             })
             .join("\n");
 
-          const contentSection = Object.entries(fileContents)
-            .slice(0, 25)
-            .map(([path, content]) => `### ${path}\n\`\`\`\n${content}\n\`\`\``)
+          // Build skeleton section instead of raw file headers
+          const skeletonSection = Object.entries(fileSkeletons)
+            .filter(([, sk]) => sk.skeletonText.trim().length > 0)
+            .slice(0, 30)
+            .map(([path, sk]) => `### ${path}\n\`\`\`\n${sk.skeletonText}\n\`\`\``)
             .join("\n\n");
 
           const folders = new Set<string>();
@@ -480,11 +695,21 @@ serve(async (req) => {
             }
           });
 
+          // Build known paths set for validation
+          const knownPaths = new Set<string>(limitedFiles.map(f => f.path));
+          [...folders].forEach(f => knownPaths.add(f));
+
           const truncationNote = wasTruncated
             ? `\n\nNote: This repository has ${totalFiles} total files. After smart filtering, ${sourceFiles.length} source files remain. Showing the ${limitedFiles.length} highest-priority files.\n`
             : "";
 
-          const prompt = `Analyze this GitHub repository "${owner}/${repo}" and create a system architecture diagram.
+          const buildPrompt = (retryErrors?: string) => {
+            let retryNote = "";
+            if (retryErrors) {
+              retryNote = `\n\n## ⚠️ PREVIOUS ATTEMPT HAD ERRORS — FIX THESE:\n${retryErrors}\nOnly reference files/paths from the file list above. Only use node IDs you have defined.\n`;
+            }
+
+            return `Analyze this GitHub repository "${owner}/${repo}" and create a system architecture diagram.
 ${truncationNote}
 ## Shallow Analysis (imports, exports, signatures)
 ${shallowSummary}
@@ -492,97 +717,113 @@ ${shallowSummary}
 ## Key Directories
 ${[...folders].slice(0, 40).join("\n")}
 
-## File Headers (declarations & imports only)
-${contentSection}
+## Code Skeletons (class/function signatures only — NOT implementation)
+${skeletonSection}
+${retryNote}
+## STRICT RULES — Violation will cause rejection
+1. **ONLY reference files that appear in the Shallow Analysis list above.** If a file path is not listed, DO NOT create a node for it.
+2. **If a dependency is imported but its source file is not in the list, mark it as "External Dependency — not found in source" in the summary.** Do NOT guess at internal file paths.
+3. **If you cannot determine a module's purpose from its skeleton, write "Purpose unclear from declarations alone"** — do NOT invent functionality.
+4. **Every edge source and target must reference a node ID you defined.** No dangling references.
+5. **No duplicate node IDs.**
 
-## Instructions
-You are given only file headers (imports, exports, type/class/function declarations). Do NOT attempt to describe implementation details — only architectural role and relationships.
+## Chain of Verification
+Before generating nodes, mentally identify which files are architecturally significant based on:
+- High export count (used by many other files)
+- Entry point status (main, index, app, server)
+- Many imports from other project files
 
+## Output Instructions
 Generate the architecture using the tool provided. Create:
 1. **nodes**: The ~20-35 most architecturally significant files AND key directories. Each node needs:
    - id, name, type (folder/component/utility/hook/config/entry/style/test/database/api/model/other)
    - summary: 1-sentence architectural role description (keep brief — detailed summaries load on-demand)
-   - keyFunctions: top 3-5 function/export names
-   - path: full file path
-   Note: Do NOT include tutorial or codeSnippet — those are loaded lazily on user request.
+   - keyFunctions: top 3-5 function/export names FROM the skeleton (do not invent names)
+   - path: full file path (MUST match a path from the Shallow Analysis list)
 
 2. **edges**: Dependencies between nodes (id, source, target, type, label)
 
 Focus on architecture structure and relationships. Keep summaries to 1 sentence describing the module's role.`;
+          };
 
-          const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "google/gemini-3-flash-preview",
-              messages: [
-                { role: "system", content: "You are a software architecture analyzer. Produce structured architecture diagrams." },
-                { role: "user", content: prompt },
-              ],
-              tools: [
-                {
-                  type: "function",
-                  function: {
-                    name: "create_architecture_diagram",
-                    description: "Create an architecture diagram from analyzed repository data",
-                    parameters: {
+          const toolSchema = {
+            type: "function" as const,
+            function: {
+              name: "create_architecture_diagram",
+              description: "Create an architecture diagram from analyzed repository data",
+              parameters: {
+                type: "object",
+                properties: {
+                  nodes: {
+                    type: "array",
+                    items: {
                       type: "object",
                       properties: {
-                        nodes: {
-                          type: "array",
-                          items: {
-                            type: "object",
-                            properties: {
-                              id: { type: "string" },
-                              name: { type: "string" },
-                              type: { type: "string", enum: ["folder", "component", "utility", "hook", "config", "entry", "style", "test", "database", "api", "model", "other"] },
-                              summary: { type: "string" },
-                              keyFunctions: { type: "array", items: { type: "string" } },
-                              path: { type: "string" },
-                            },
-                            required: ["id", "name", "type", "summary", "path"],
-                            additionalProperties: false,
-                          },
-                        },
-                        edges: {
-                          type: "array",
-                          items: {
-                            type: "object",
-                            properties: {
-                              id: { type: "string" },
-                              source: { type: "string" },
-                              target: { type: "string" },
-                              type: { type: "string", enum: ["imports", "calls", "inherits", "contains"] },
-                              label: { type: "string" },
-                            },
-                            required: ["id", "source", "target", "type"],
-                            additionalProperties: false,
-                          },
-                        },
+                        id: { type: "string" },
+                        name: { type: "string" },
+                        type: { type: "string", enum: ["folder", "component", "utility", "hook", "config", "entry", "style", "test", "database", "api", "model", "other"] },
+                        summary: { type: "string" },
+                        keyFunctions: { type: "array", items: { type: "string" } },
+                        path: { type: "string" },
                       },
-                      required: ["nodes", "edges"],
+                      required: ["id", "name", "type", "summary", "path"],
+                      additionalProperties: false,
+                    },
+                  },
+                  edges: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        id: { type: "string" },
+                        source: { type: "string" },
+                        target: { type: "string" },
+                        type: { type: "string", enum: ["imports", "calls", "inherits", "contains"] },
+                        label: { type: "string" },
+                      },
+                      required: ["id", "source", "target", "type"],
                       additionalProperties: false,
                     },
                   },
                 },
-              ],
-              tool_choice: { type: "function", function: { name: "create_architecture_diagram" } },
-            }),
-          });
+                required: ["nodes", "edges"],
+                additionalProperties: false,
+              },
+            },
+          };
 
-          if (!aiRes.ok) {
-            if (aiRes.status === 429) throw new Error("Rate limit exceeded. Please try again in a moment.");
-            if (aiRes.status === 402) throw new Error("AI credits exhausted. Please add credits to continue.");
-            const errText = await aiRes.text();
-            console.error("AI gateway error:", aiRes.status, errText);
-            throw new Error(`AI analysis failed (${aiRes.status})`);
-          }
+          // ─── AI call with validation + retry ───────────────
+          const callAI = async (prompt: string) => {
+            const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "google/gemini-3-flash-preview",
+                messages: [
+                  { role: "system", content: "You are a software architecture analyzer. Produce structured architecture diagrams. ONLY reference files and functions that exist in the provided data — NEVER invent paths or names." },
+                  { role: "user", content: prompt },
+                ],
+                tools: [toolSchema],
+                tool_choice: { type: "function", function: { name: "create_architecture_diagram" } },
+              }),
+            });
 
-          const aiData = await aiRes.json();
-          const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+            if (!aiRes.ok) {
+              if (aiRes.status === 429) throw new Error("Rate limit exceeded. Please try again in a moment.");
+              if (aiRes.status === 402) throw new Error("AI credits exhausted. Please add credits to continue.");
+              const errText = await aiRes.text();
+              console.error("AI gateway error:", aiRes.status, errText);
+              throw new Error(`AI analysis failed (${aiRes.status})`);
+            }
+            return aiRes.json();
+          };
+
+          // First attempt
+          let aiData = await callAI(buildPrompt());
+          let toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
 
           // Extract token usage metrics
           const usage = aiData.usage;
@@ -601,7 +842,48 @@ Focus on architecture structure and relationships. Keep summaries to 1 sentence 
             throw new Error("AI did not return structured data");
           }
 
-          const parsed = JSON.parse(toolCall.function.arguments);
+          let parsed = JSON.parse(toolCall.function.arguments);
+
+          // ─── Validation + single retry ─────────────────────
+          const validationErrors = validateAnalysisResult(parsed, knownPaths);
+          if (validationErrors.length > 0) {
+            console.log(`Validation found ${validationErrors.length} errors, retrying...`);
+            send({ type: "progress", step: "validate_retry", message: `Fixing ${validationErrors.length} validation errors...` });
+
+            const errorList = validationErrors.map(e => `- ${e.message}`).join("\n");
+            const retryData = await callAI(buildPrompt(errorList));
+            const retryToolCall = retryData.choices?.[0]?.message?.tool_calls?.[0];
+
+            if (retryToolCall?.function?.arguments) {
+              const retryParsed = JSON.parse(retryToolCall.function.arguments);
+              const retryErrors = validateAnalysisResult(retryParsed, knownPaths);
+              if (retryErrors.length < validationErrors.length) {
+                parsed = retryParsed;
+                console.log(`Retry reduced errors from ${validationErrors.length} to ${retryErrors.length}`);
+              } else {
+                // If retry didn't improve, auto-fix by removing invalid entries
+                console.log("Retry didn't improve, auto-fixing by removing invalid entries");
+              }
+            }
+
+            // Auto-fix: remove nodes with invalid paths and edges with dangling refs
+            const validNodeIds = new Set<string>();
+            parsed.nodes = (parsed.nodes || []).filter((n: any) => {
+              const pathValid = knownPaths.has(n.path) || [...knownPaths].some(p => p.startsWith(n.path + "/"));
+              if (pathValid) validNodeIds.add(n.id);
+              return pathValid;
+            });
+            // Deduplicate node IDs
+            const seenIds = new Set<string>();
+            parsed.nodes = parsed.nodes.filter((n: any) => {
+              if (seenIds.has(n.id)) return false;
+              seenIds.add(n.id);
+              return true;
+            });
+            parsed.edges = (parsed.edges || []).filter((e: any) =>
+              validNodeIds.has(e.source) && validNodeIds.has(e.target)
+            );
+          }
 
           send({ type: "progress", step: "done", message: "Building diagram..." });
 
@@ -632,7 +914,6 @@ Focus on architecture structure and relationships. Keep summaries to 1 sentence 
               console.error("Cache store error:", cacheErr);
               return;
             }
-            // Also insert into history
             db.from("analysis_history").insert({
               repo_url: repoUrl,
               repo_name: `${owner}/${repo}`,
@@ -642,8 +923,6 @@ Focus on architecture structure and relationships. Keep summaries to 1 sentence 
             }).then(({ error: histErr }) => {
               if (histErr) console.error("History store error:", histErr);
             });
-
-            // Attach cache ID to result
             result._cacheId = cacheData.id;
           });
 

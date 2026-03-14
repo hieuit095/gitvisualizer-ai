@@ -127,11 +127,19 @@ ${nodesSummary}
 ${edgesSummary}
 ${ragContext}
 
-## Guidelines
-- ${hasRagChunks ? "**ALWAYS cite your sources** using the format \`[filename:L##-L##]\` when referencing code from the retrieved chunks above." : "Reference specific file paths and function names in your answers."}
-- ${hasRagChunks ? "Base your answers on the actual code shown in the retrieved chunks. Do NOT invent code that isn't shown." : "Explain data flows by tracing through the dependency graph."}
+## STRICT GROUNDING RULES — You MUST follow these
+1. **CITE YOUR SOURCES**: ${hasRagChunks ? "ALWAYS cite using the format `[filename:L##-L##]` when referencing code from the retrieved chunks above." : "Reference specific file paths and function names in your answers."}
+2. **NO HALLUCINATION**: ${hasRagChunks ? "Base your answers ONLY on the actual code shown in the retrieved chunks. Do NOT invent code, function names, or file paths that are not shown above." : "Only reference files and functions listed in the repository architecture above."}
+3. **EXTERNAL DEPENDENCIES**: If a function or module is imported but its source code is NOT in the retrieved chunks or file list, state: "This appears to be an external dependency — source not available in the analyzed codebase."
+4. **UNCERTAINTY**: If you cannot determine how something works from the available code, say "I don't have enough source code to determine this" instead of guessing.
+5. **NO INVENTED CODE**: Never write code examples that pretend to be from the repository unless you are directly quoting from retrieved chunks with line numbers.
+
+## Chain of Verification
+Before answering, mentally identify which retrieved chunks (if any) are relevant to the question. Start your answer by briefly noting which files/chunks you are drawing from, e.g. "Based on [router/index.ts:L12-L45] and [app.ts:L3-L8]:".
+
+## Response Guidelines
 - When asked "where is X", identify the most relevant file(s)${hasRagChunks ? " and cite the exact line ranges" : ""}
-- Provide code examples when helpful
+- Provide code examples only when quoting actual retrieved chunks
 - Be concise but thorough
 - Use markdown formatting for readability`;
 
