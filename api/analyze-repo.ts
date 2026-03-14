@@ -438,7 +438,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const truncationNote = wasTruncated ? `\nNote: ${totalFiles} total files, ${sourceFiles.length} after filtering, showing ${limitedFiles.length}.\n` : "";
 
     const buildPrompt = (retryErrors?: string) => {
-      let retryNote = retryErrors ? `\n\n## FIX THESE ERRORS:\n${retryErrors}\n` : "";
+      const retryNote = retryErrors ? `\n\n## FIX THESE ERRORS:\n${retryErrors}\n` : "";
       return `Analyze this GitHub repository "${owner}/${repo}" and create a system architecture diagram.
 ${truncationNote}
 ## Shallow Analysis
@@ -505,8 +505,8 @@ Generate edges with: id, source, target, type, label`;
       return aiRes.json();
     };
 
-    let aiData = await callAI(buildPrompt());
-    let toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+    const aiData = await callAI(buildPrompt());
+    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall?.function?.arguments) throw new Error("AI did not return structured data");
 
     let parsed = JSON.parse(toolCall.function.arguments);
