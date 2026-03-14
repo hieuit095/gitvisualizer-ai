@@ -225,6 +225,7 @@ export function repoFilePriority(path: string): number {
   const name = path.split("/").pop() || "";
   let score = 0;
 
+  if (/^(src|lib|app|server|packages\/[^/]+\/src)\//i.test(path)) score += 6;
   if (/^(index|main|app|server)\./i.test(name)) score += 10;
   if (/package\.json|tsconfig|Cargo\.toml|go\.mod|pyproject\.toml/i.test(name)) {
     score += 8;
@@ -235,6 +236,10 @@ export function repoFilePriority(path: string): number {
   if (/model|schema|types/i.test(name)) score += 4;
   if (/util|helper|lib/i.test(path)) score += 3;
   if (/\.test\.|\.spec\./i.test(name)) score -= 3;
+  if (/^(examples?|demo|demos|docs|storybook)\//i.test(path) || /\/(examples?|demo|demos|storybook)\//i.test(path)) {
+    score -= 10;
+  }
+  if (/\/(__mocks__|fixtures)\//i.test(path)) score -= 4;
 
   score -= Math.max(0, path.split("/").length - 3);
   return score;

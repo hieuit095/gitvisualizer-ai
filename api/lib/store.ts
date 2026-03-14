@@ -10,6 +10,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
+import { repoFilePriority } from "./github.js";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -198,6 +199,7 @@ export function searchChunks(
       const matches = searchable.split(term).length - 1;
       score += matches;
     }
+    score += Math.max(0, repoFilePriority(chunk.file_path)) * 0.25;
     return { ...chunk, rank: score };
   });
 
@@ -231,13 +233,18 @@ export function vectorSearchChunks(
     c => c.repo_url === repoUrl && c.embedding && c.embedding.length > 0
   );
 
-  const scored = repoChunks.map(chunk => ({
-    ...chunk,
-    similarity: cosineSimilarity(queryEmbedding, chunk.embedding!),
-  }));
+  const scored = repoChunks.map(chunk => {
+    const similarity = cosineSimilarity(queryEmbedding, chunk.embedding!);
+    const rankingScore = similarity + repoFilePriority(chunk.file_path) * 0.01;
+    return {
+      ...chunk,
+      similarity,
+      rankingScore,
+    };
+  });
 
   return scored
     .filter(c => c.similarity > threshold)
-    .sort((a, b) => b.similarity - a.similarity)
+    .sort((a, b) => b.rankingScore - a.rankingScore)
     .slice(0, maxResults);
 }

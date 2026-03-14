@@ -2,13 +2,11 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client.js";
 import { deleteChunksForRepo, storeChunk, flushChunksToDisk } from "./lib/store.js";
 import {
-  decodeBase64Utf8,
-  extractOwnerRepo,
-  getGitHubHeaders,
   isBlockedRepoPath as shouldSkip,
   isLikelySourceFile as isSourceFile,
   repoFilePriority as filePriority,
 } from "./lib/github.js";
+import { loadRepositorySnapshot } from "./lib/repository-source.js";
 import { buildStaticChunks } from "./lib/static-analysis.js";
 
 interface CodeChunk {
@@ -83,17 +81,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { repoUrl, githubToken } = req.body;
     if (!repoUrl) throw new Error("repoUrl is required");
 
-    const { owner, repo } = extractOwnerRepo(repoUrl);
-    const ghHeaders = getGitHubHeaders(githubToken);
-
     // Clear old chunks for this repo
     deleteChunksForRepo(repoUrl);
 
     // Fetch tree
-    const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`, { headers: ghHeaders });
-    if (!treeRes.ok) throw new Error(`GitHub tree fetch failed (${treeRes.status})`);
-    const treeData = await treeRes.json();
-    const allFiles = (treeData.tree || []).filter((f: any) => f.type === "blob" && !shouldSkip(f.path) && isSourceFile(f.path));
+    const repoSnapshot = await loadRepositorySnapshot(repoUrl, githubToken);
+    const allFiles = repoSnapshot.files.filter((f: any) => f.type === "blob" && !shouldSkip(f.path, f.size) && isSourceFile(f.path));
     const sorted = allFiles.sort((a: any, b: any) => filePriority(b.path) - filePriority(a.path));
     const targets = sorted.slice(0, 40);
 
@@ -101,14 +94,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let fetched = 0;
     for (const file of targets) {
       try {
-        const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`, { headers: ghHeaders });
-        if (!r.ok) { await r.text(); continue; }
-        const d = await r.json(); if (!d.content) continue;
-        let content = decodeBase64Utf8(d.content);
+        const fileContent = await repoSnapshot.readTextFile(file.path);
+        if (!fileContent) continue;
+        let content = fileContent;
         if (content.length > 15000) content = content.slice(0, 15000);
         allChunks.push(...chunkFile(content, file.path));
         fetched++;
-        if (fetched % 10 === 0) await new Promise(r => setTimeout(r, 500));
+        if (repoSnapshot.source === "github-api" && fetched % 10 === 0) {
+          await new Promise(r => setTimeout(r, 500));
+        }
       } catch { }
     }
 
@@ -176,6 +170,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     res.json({
       success: true,
+      fetchSource: repoSnapshot.source,
       filesProcessed: fetched,
       chunksStored: allChunks.length,
       embeddingsGenerated: embeddingsAvailable,

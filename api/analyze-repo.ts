@@ -1,15 +1,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { posix } from "node:path";
 import { chatCompletion } from "./lib/ai-client.js";
 import { getCachedAnalysis, storeAnalysis, addHistory } from "./lib/store.js";
 import {
-  decodeBase64Utf8,
-  extractOwnerRepo,
-  getGitHubHeaders,
   isBlockedRepoPath as isBlockedByEngine,
   isLikelySourceFile as isSourceFile,
   repoFilePriority as filePriority,
 } from "./lib/github.js";
+import { loadRepositorySnapshot } from "./lib/repository-source.js";
 import { analyzeSourceFile, type FileStaticAnalysis } from "./lib/static-analysis.js";
+import { extractStructuredArguments } from "./lib/structured-output.js";
 
 // ─── Smart Ignore Engine (same as Supabase version) ───────────────────
 
@@ -118,6 +118,154 @@ function validateAnalysisResult(parsed: { nodes: any[]; edges: any[] }, knownPat
   return errors;
 }
 
+function normalizeDiagramResult(payload: any): { nodes: any[]; edges: any[] } & Record<string, any> {
+  const base = payload?.parameters && typeof payload.parameters === "object"
+    ? payload.parameters
+    : payload;
+
+  const toArray = (value: any) => {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") return Object.values(value);
+    return [];
+  };
+
+  return {
+    ...(base && typeof base === "object" ? base : {}),
+    nodes: toArray(base?.nodes),
+    edges: toArray(base?.edges),
+  };
+}
+
+function summarizeStaticFile(file: ShallowFileInfo): string {
+  const parts: string[] = [];
+  if (file.analysis?.parser && file.analysis.parser !== "fallback") parts.push(`parser ${file.analysis.parser}`);
+  if (file.analysis?.classes?.length) parts.push(`${file.analysis.classes.length} classes`);
+  if (file.analysis?.functions?.length) parts.push(`${file.analysis.functions.length} functions`);
+  if (file.analysis?.variables?.length) parts.push(`${file.analysis.variables.length} variables`);
+  if (file.exports.length) parts.push(`${file.exports.length} exports`);
+  if (file.imports.length) parts.push(`${file.imports.length} imports`);
+  return parts.length > 0 ? `Static analysis found ${parts.join(", ")}.` : "Static analysis summary unavailable.";
+}
+
+function makeDiagramId(prefix: string, value: string): string {
+  return `${prefix}_${value.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "node"}`;
+}
+
+function resolveRelativeImport(fromPath: string, specifier: string, knownPaths: Set<string>): string | null {
+  if (!specifier.startsWith(".")) return null;
+
+  const basePath = posix.normalize(posix.join(posix.dirname(fromPath), specifier));
+  const candidates = [
+    basePath,
+    `${basePath}.ts`,
+    `${basePath}.tsx`,
+    `${basePath}.js`,
+    `${basePath}.jsx`,
+    `${basePath}.mjs`,
+    `${basePath}.cjs`,
+    `${basePath}.json`,
+    posix.join(basePath, "index.ts"),
+    posix.join(basePath, "index.tsx"),
+    posix.join(basePath, "index.js"),
+    posix.join(basePath, "index.jsx"),
+  ];
+
+  for (const candidate of candidates) {
+    if (knownPaths.has(candidate)) return candidate;
+  }
+
+  return null;
+}
+
+function buildStaticDiagramFallback(shallowMap: ShallowFileInfo[]) {
+  const selectedFiles = shallowMap
+    .filter((file) => file.analysis || file.imports.length > 0 || file.exports.length > 0)
+    .slice(0, 26);
+
+  const nodes: any[] = [];
+  const edges: any[] = [];
+  const nodeIdByPath = new Map<string, string>();
+  const knownPaths = new Set(shallowMap.map((file) => file.path));
+
+  const folderPaths = [...new Set(
+    selectedFiles
+      .map((file) => file.path.split("/")[0])
+      .filter((folder) => Boolean(folder) && folder !== selectedFiles[0]?.path),
+  )].slice(0, 6);
+
+  for (const folderPath of folderPaths) {
+    const folderId = makeDiagramId("folder", folderPath);
+    nodeIdByPath.set(folderPath, folderId);
+    nodes.push({
+      id: folderId,
+      name: folderPath,
+      type: "folder",
+      summary: `Top-level directory containing ${selectedFiles.filter((file) => file.path.startsWith(`${folderPath}/`)).length} prioritized files.`,
+      keyFunctions: [],
+      path: folderPath,
+    });
+  }
+
+  for (const file of selectedFiles) {
+    const fileId = makeDiagramId("file", file.path);
+    nodeIdByPath.set(file.path, fileId);
+    const keyFunctions = [
+      ...(file.analysis?.functions || []),
+      ...(file.analysis?.classes || []),
+      ...file.exports,
+      ...file.signatures,
+    ].filter(Boolean).slice(0, 6);
+
+    nodes.push({
+      id: fileId,
+      name: file.path.split("/").pop() || file.path,
+      type: file.type,
+      summary: summarizeStaticFile(file),
+      keyFunctions,
+      path: file.path,
+    });
+
+    const folderPath = file.path.split("/")[0];
+    const folderId = nodeIdByPath.get(folderPath);
+    if (folderId) {
+      edges.push({
+        id: makeDiagramId("edge_contains", `${folderPath}_${file.path}`),
+        source: folderId,
+        target: fileId,
+        type: "contains",
+        label: "contains",
+      });
+    }
+  }
+
+  const selectedPaths = new Set(selectedFiles.map((file) => file.path));
+  for (const file of selectedFiles) {
+    const sourceId = nodeIdByPath.get(file.path);
+    if (!sourceId) continue;
+
+    for (const specifier of file.imports.slice(0, 12)) {
+      const targetPath = resolveRelativeImport(file.path, specifier, knownPaths);
+      if (!targetPath || !selectedPaths.has(targetPath)) continue;
+
+      const targetId = nodeIdByPath.get(targetPath);
+      if (!targetId || targetId === sourceId) continue;
+
+      const edgeId = makeDiagramId("edge_import", `${file.path}_${targetPath}`);
+      if (edges.some((edge) => edge.id === edgeId)) continue;
+
+      edges.push({
+        id: edgeId,
+        source: sourceId,
+        target: targetId,
+        type: "imports",
+        label: specifier,
+      });
+    }
+  }
+
+  return { nodes, edges };
+}
+
 // ─── Main Handler ──────────────────────────────────────────────────────
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -130,8 +278,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { repoUrl, githubToken, forceRefresh } = req.body;
     if (!repoUrl) return res.status(400).json({ error: "repoUrl is required" });
 
-    const { owner, repo } = extractOwnerRepo(repoUrl);
-
     // Check cache first
     if (!forceRefresh) {
       const cached = getCachedAnalysis(repoUrl);
@@ -143,7 +289,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    const ghHeaders = getGitHubHeaders(githubToken);
     res.setHeader("Content-Type", "application/x-ndjson");
 
     const send = (data: Record<string, unknown>) => {
@@ -152,25 +297,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Step 1: Fetch repo tree
     send({ type: "progress", step: "fetch", message: "Fetching repository tree..." });
-    const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`, { headers: ghHeaders });
-    if (!treeRes.ok) {
-      const errText = await treeRes.text();
-      if (treeRes.status === 403 && errText.includes("rate limit")) throw new Error("GitHub API rate limit exceeded.");
-      if (treeRes.status === 404) throw new Error("Repository not found. For private repos, add a GitHub token.");
-      throw new Error(`GitHub API error (${treeRes.status}): ${errText}`);
-    }
-    const treeData = await treeRes.json();
-    const allFiles = (treeData.tree || []).filter((f: any) => f.type === "blob");
+    const repoSnapshot = await loadRepositorySnapshot(repoUrl, githubToken);
+    const { owner, repo } = repoSnapshot;
+    const allFiles = repoSnapshot.files.filter((f: any) => f.type === "blob");
     const totalFiles = allFiles.length;
-    send({ type: "progress", step: "fetch_done", message: `Fetched ${totalFiles} files`, totalFiles });
+    send({
+      type: "progress",
+      step: "fetch_done",
+      message: `Fetched ${totalFiles} files via ${repoSnapshot.source}`,
+      totalFiles,
+      source: repoSnapshot.source,
+    });
 
     // Step 2: Filter
     send({ type: "progress", step: "filter", message: "Applying Smart Ignore filters..." });
     let gitignoreFilter: ((path: string) => boolean) | null = null;
     try {
-      const giRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/.gitignore`, { headers: ghHeaders });
-      if (giRes.ok) { const d = await giRes.json(); if (d.content) gitignoreFilter = parseGitignore(decodeBase64Utf8(d.content)); }
-      else await giRes.text();
+      const gitignoreContent = await repoSnapshot.readGitignore();
+      if (gitignoreContent) gitignoreFilter = parseGitignore(gitignoreContent);
     } catch { }
 
     const afterEngine = allFiles.filter((f: any) => !isBlockedByEngine(f.path, f.size));
@@ -191,15 +335,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const fileAnalyses: Record<string, FileStaticAnalysis> = {};
 
     await fetchWithConcurrency(contentTargets, async (f: any) => {
-      const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`, { headers: ghHeaders });
-      if (r.ok) {
-        const d = await r.json();
-        if (d.content) {
-          const decoded = decodeBase64Utf8(d.content);
-          fileContents[f.path] = decoded;
-          fileAnalyses[f.path] = analyzeSourceFile(decoded, f.path);
-        }
-      } else { await r.text(); }
+      const decoded = await repoSnapshot.readTextFile(f.path);
+      if (!decoded) return;
+      fileContents[f.path] = decoded;
+      fileAnalyses[f.path] = analyzeSourceFile(decoded, f.path);
     }, 5, 2);
 
     const shallowMap = limitedFiles.map((f: any) => {
@@ -300,25 +439,48 @@ Generate edges with: id, source, target, type, label`;
     };
 
     const callAI = async (prompt: string) => {
+      const messages = [
+        { role: "system" as const, content: "You are a software architecture analyzer. Produce structured architecture diagrams. ONLY reference files that exist in the provided data." },
+        { role: "user" as const, content: prompt },
+      ];
       const aiRes = await chatCompletion(
-        [
-          { role: "system", content: "You are a software architecture analyzer. Produce structured architecture diagrams. ONLY reference files that exist in the provided data." },
-          { role: "user", content: prompt },
-        ],
+        messages,
         { tools: [toolSchema], tool_choice: { type: "function", function: { name: "create_architecture_diagram" } } }
       );
       if (!aiRes.ok) {
         if (aiRes.status === 429) throw new Error("Rate limit exceeded.");
         throw new Error(`AI analysis failed (${aiRes.status})`);
       }
-      return aiRes.json();
+
+      const aiData = await aiRes.json();
+      const structuredArguments = extractStructuredArguments(aiData);
+      if (structuredArguments) return structuredArguments;
+      console.error("analyze-repo primary structured output missing:", JSON.stringify(aiData).slice(0, 4000));
+
+      const fallbackRes = await chatCompletion(
+        [
+          { role: "system", content: "You are a software architecture analyzer. Return ONLY valid JSON. No markdown, no commentary." },
+          {
+            role: "user",
+            content: `${prompt}\n\nReturn ONLY a JSON object matching this schema:\n${JSON.stringify(toolSchema.function.parameters)}`,
+          },
+        ],
+      );
+      if (!fallbackRes.ok) {
+        if (fallbackRes.status === 429) throw new Error("Rate limit exceeded.");
+        throw new Error(`AI analysis fallback failed (${fallbackRes.status})`);
+      }
+
+      const fallbackData = await fallbackRes.json();
+      const fallbackArguments = extractStructuredArguments(fallbackData);
+      if (!fallbackArguments) {
+        console.error("analyze-repo fallback structured output missing:", JSON.stringify(fallbackData).slice(0, 4000));
+      }
+      if (!fallbackArguments) throw new Error("AI did not return structured data");
+      return fallbackArguments;
     };
 
-    const aiData = await callAI(buildPrompt());
-    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) throw new Error("AI did not return structured data");
-
-    let parsed = JSON.parse(toolCall.function.arguments);
+    let parsed = normalizeDiagramResult(JSON.parse(await callAI(buildPrompt())));
 
     // Validation + retry
     const validationErrors = validateAnalysisResult(parsed, knownPaths);
@@ -326,12 +488,8 @@ Generate edges with: id, source, target, type, label`;
       send({ type: "progress", step: "validate_retry", message: `Fixing ${validationErrors.length} errors...` });
       const errorList = validationErrors.map(e => `- ${e.message}`).join("\n");
       try {
-        const retryData = await callAI(buildPrompt(errorList));
-        const retryToolCall = retryData.choices?.[0]?.message?.tool_calls?.[0];
-        if (retryToolCall?.function?.arguments) {
-          const retryParsed = JSON.parse(retryToolCall.function.arguments);
-          if (validateAnalysisResult(retryParsed, knownPaths).length < validationErrors.length) parsed = retryParsed;
-        }
+        const retryParsed = normalizeDiagramResult(JSON.parse(await callAI(buildPrompt(errorList))));
+        if (validateAnalysisResult(retryParsed, knownPaths).length < validationErrors.length) parsed = retryParsed;
       } catch { }
 
       // Auto-fix
@@ -345,11 +503,24 @@ Generate edges with: id, source, target, type, label`;
       parsed.edges = (parsed.edges || []).filter((e: any) => validNodeIds.has(e.source) && validNodeIds.has(e.target));
     }
 
+    if (parsed.nodes.length === 0 || parsed.edges.length === 0) {
+      const fallbackDiagram = buildStaticDiagramFallback(shallowMap);
+      if (fallbackDiagram.nodes.length > 0) {
+        send({
+          type: "progress",
+          step: "fallback",
+          message: "AI diagram was incomplete. Building a deterministic static-analysis diagram...",
+        });
+        parsed = fallbackDiagram;
+      }
+    }
+
     send({ type: "progress", step: "done", message: "Building diagram..." });
 
     const result: any = {
       repoName: `${owner}/${repo}`, repoUrl, totalFiles, wasTruncated,
       filteredFiles: sourceFiles.length, filteredOut,
+      fetchSource: repoSnapshot.source,
       nodes: parsed.nodes || [], edges: parsed.edges || [],
     };
 

@@ -38,6 +38,16 @@ describe("resolveAiConfig", () => {
 
     expect(config.supportsEmbeddings).toBe(false);
   });
+
+  it("uses a serverless-compatible embedding preset for Together", () => {
+    const config = resolveAiConfig({
+      AI_PROVIDER: "together",
+      AI_API_KEY: "test-key",
+    });
+
+    expect(config.embeddingModel).toBe("intfloat/multilingual-e5-large-instruct");
+    expect(config.supportsEmbeddings).toBe(true);
+  });
 });
 
 describe("buildAiHeaders", () => {
