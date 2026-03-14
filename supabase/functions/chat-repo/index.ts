@@ -33,6 +33,7 @@ serve(async (req) => {
     const userQuery = messages[messages.length - 1]?.content || "";
     let ragContext = "";
     let searchMethod = "none";
+    let chunksRetrieved = 0;
 
     if (repoContext.repoUrl && userQuery) {
       // Try vector search first (if embeddings are available)
