@@ -97,12 +97,73 @@ export type Database = {
           },
         ]
       }
+      code_chunks: {
+        Row: {
+          chunk_index: number
+          chunk_name: string | null
+          chunk_type: string
+          content: string
+          created_at: string
+          embedding: string | null
+          end_line: number
+          file_path: string
+          id: string
+          repo_url: string
+          search_vector: unknown
+          start_line: number
+        }
+        Insert: {
+          chunk_index?: number
+          chunk_name?: string | null
+          chunk_type?: string
+          content: string
+          created_at?: string
+          embedding?: string | null
+          end_line?: number
+          file_path: string
+          id?: string
+          repo_url: string
+          search_vector?: unknown
+          start_line?: number
+        }
+        Update: {
+          chunk_index?: number
+          chunk_name?: string | null
+          chunk_type?: string
+          content?: string
+          created_at?: string
+          embedding?: string | null
+          end_line?: number
+          file_path?: string
+          id?: string
+          repo_url?: string
+          search_vector?: unknown
+          start_line?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_code_chunks: {
+        Args: {
+          match_count?: number
+          match_repo_url: string
+          query_text: string
+        }
+        Returns: {
+          chunk_name: string
+          chunk_type: string
+          content: string
+          end_line: number
+          file_path: string
+          id: string
+          rank: number
+          start_line: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
