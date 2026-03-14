@@ -15,6 +15,7 @@ interface InfoPanelProps {
   repoUrl: string;
   onClose: () => void;
   onNodeDetailLoaded?: (nodeId: string, detail: NodeDetail) => void;
+  onAskChat?: (question: string) => void;
 }
 
 const typeColors: Record<string, string> = {
