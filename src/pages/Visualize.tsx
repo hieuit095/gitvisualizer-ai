@@ -296,8 +296,13 @@ const VisualizeInner = () => {
         repoUrl={repoUrl}
         onClose={() => setSelectedNode(null)}
         onNodeDetailLoaded={handleNodeDetailLoaded}
+        onAskChat={(question) => setAskAboutNode(question)}
       />
-      <RepoChat analysisResult={analysisResult} />
+      <RepoChat
+        analysisResult={analysisResult}
+        askAboutNode={askAboutNode}
+        onAskHandled={() => setAskAboutNode(null)}
+      />
     </div>
   );
 };
