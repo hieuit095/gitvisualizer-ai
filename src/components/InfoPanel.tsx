@@ -44,7 +44,7 @@ function detectLanguage(path: string): string {
   return map[ext] || "typescript";
 }
 
-const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded }: InfoPanelProps) => {
+const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: InfoPanelProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
