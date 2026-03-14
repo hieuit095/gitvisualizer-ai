@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { chatCompletion } from "./lib/ai-client";
-import { query } from "./lib/db";
+import { getChunksForFile } from "./lib/store";
 
 function decodeBase64Utf8(base64: string): string {
   return Buffer.from(base64.replace(/\n/g, ""), "base64").toString("utf-8");
@@ -31,29 +31,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { owner, repo } = extractOwnerRepo(repoUrl);
     const ghHeaders = getGitHubHeaders(githubToken);
 
-    // Try RAG chunks first
-    let ragChunks: any[] = [];
-    try {
-      ragChunks = await query(
-        `SELECT chunk_name, chunk_type, content, start_line, end_line FROM code_chunks WHERE repo_url = $1 AND file_path = $2 ORDER BY chunk_index`,
-        [repoUrl, filePath]
-      );
-    } catch { }
+    // Try indexed chunks first
+    const ragChunks = getChunksForFile(repoUrl, filePath);
 
     // Fallback: fetch from GitHub
     let fileContent = "";
     if (ragChunks.length === 0) {
       try {
         const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, { headers: ghHeaders });
-        if (r.ok) { const d = await r.json(); if (d.content) { fileContent = decodeBase64Utf8(d.content); if (fileContent.length > 8000) fileContent = fileContent.slice(0, 8000) + "\n// ... truncated"; } }
-        else await r.text();
+        if (r.ok) {
+          const d = await r.json();
+          if (d.content) {
+            fileContent = decodeBase64Utf8(d.content);
+            if (fileContent.length > 8000) fileContent = fileContent.slice(0, 8000) + "\n// ... truncated";
+          }
+        } else await r.text();
       } catch { }
     }
 
     let contentSection: string;
     const chunkBoundaries: string[] = [];
     if (ragChunks.length > 0) {
-      contentSection = ragChunks.map(c => { chunkBoundaries.push(`${c.chunk_type}:${c.chunk_name} (L${c.start_line}-L${c.end_line})`); return `### ${c.chunk_type}: ${c.chunk_name} [L${c.start_line}-L${c.end_line}]\n\`\`\`\n${c.content}\n\`\`\``; }).join("\n\n");
+      contentSection = ragChunks.map(c => {
+        chunkBoundaries.push(`${c.chunk_type}:${c.chunk_name} (L${c.start_line}-L${c.end_line})`);
+        return `### ${c.chunk_type}: ${c.chunk_name} [L${c.start_line}-L${c.end_line}]\n\`\`\`\n${c.content}\n\`\`\``;
+      }).join("\n\n");
     } else {
       contentSection = `\`\`\`\n${fileContent || "Content unavailable"}\n\`\`\``;
     }
@@ -81,10 +83,22 @@ Provide: summary, keyFunctions, tutorial, codeSnippet, references.`;
             parameters: {
               type: "object",
               properties: {
-                summary: { type: "string" }, keyFunctions: { type: "array", items: { type: "string" } },
-                tutorial: { type: "string" }, codeSnippet: { type: "string" },
-                references: { type: "array", items: { type: "object", properties: { filePath: { type: "string" }, startLine: { type: "integer" }, endLine: { type: "integer" } }, required: ["filePath", "startLine", "endLine"], additionalProperties: false } },
-              }, required: ["summary", "keyFunctions", "tutorial", "codeSnippet"], additionalProperties: false,
+                summary: { type: "string" },
+                keyFunctions: { type: "array", items: { type: "string" } },
+                tutorial: { type: "string" },
+                codeSnippet: { type: "string" },
+                references: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: { filePath: { type: "string" }, startLine: { type: "integer" }, endLine: { type: "integer" } },
+                    required: ["filePath", "startLine", "endLine"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ["summary", "keyFunctions", "tutorial", "codeSnippet"],
+              additionalProperties: false,
             },
           },
         }],

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { chatCompletion } from "./lib/ai-client";
-import { query, queryOne } from "./lib/db";
+import { getCachedAnalysis, storeAnalysis, addHistory } from "./lib/store";
 
 // ─── Smart Ignore Engine (same as Supabase version) ───────────────────
 
@@ -330,20 +330,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { owner, repo } = extractOwnerRepo(repoUrl);
 
-    // Check DB cache first
+    // Check cache first
     if (!forceRefresh) {
-      try {
-        const cached = await queryOne(
-          `SELECT id, result, repo_name FROM analysis_cache WHERE repo_url = $1 AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
-          [repoUrl]
-        );
-        if (cached?.result) {
-          res.setHeader("Content-Type", "application/x-ndjson");
-          res.write(JSON.stringify({ type: "progress", step: "done", message: "Loaded from cache" }) + "\n");
-          res.write(JSON.stringify({ type: "result", data: { ...cached.result, cached: true, _cacheId: cached.id } }) + "\n");
-          return res.end();
-        }
-      } catch { /* no cache */ }
+      const cached = getCachedAnalysis(repoUrl);
+      if (cached?.result) {
+        res.setHeader("Content-Type", "application/x-ndjson");
+        res.write(JSON.stringify({ type: "progress", step: "done", message: "Loaded from cache" }) + "\n");
+        res.write(JSON.stringify({ type: "result", data: { ...cached.result, cached: true, _cacheId: cached.id } }) + "\n");
+        return res.end();
+      }
     }
 
     const ghHeaders = getGitHubHeaders(githubToken);
@@ -549,20 +544,25 @@ Generate edges with: id, source, target, type, label`;
       nodes: parsed.nodes || [], edges: parsed.edges || [],
     };
 
-    // Store in DB (fire-and-forget)
+    // Store in cache (in-memory + optional disk)
     try {
-      const rows = await query(
-        `INSERT INTO analysis_cache (repo_url, repo_name, result, total_files, node_count, edge_count, was_truncated)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [repoUrl, `${owner}/${repo}`, JSON.stringify(result), totalFiles, (parsed.nodes || []).length, (parsed.edges || []).length, wasTruncated]
-      );
-      if (rows[0]?.id) {
-        result._cacheId = rows[0].id;
-        query(
-          `INSERT INTO analysis_history (repo_url, repo_name, cache_id, node_count, edge_count) VALUES ($1, $2, $3, $4, $5)`,
-          [repoUrl, `${owner}/${repo}`, rows[0].id, (parsed.nodes || []).length, (parsed.edges || []).length]
-        ).catch(() => { });
-      }
+      const cacheId = storeAnalysis({
+        repo_url: repoUrl,
+        repo_name: `${owner}/${repo}`,
+        result,
+        total_files: totalFiles,
+        node_count: (parsed.nodes || []).length,
+        edge_count: (parsed.edges || []).length,
+        was_truncated: wasTruncated,
+      });
+      result._cacheId = cacheId;
+      addHistory({
+        repo_url: repoUrl,
+        repo_name: `${owner}/${repo}`,
+        cache_id: cacheId,
+        node_count: (parsed.nodes || []).length,
+        edge_count: (parsed.edges || []).length,
+      });
     } catch (e) { console.error("Cache store error:", e); }
 
     send({ type: "result", data: result });

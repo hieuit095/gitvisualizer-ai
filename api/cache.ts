@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { queryOne } from "./lib/db";
+import { getCacheById } from "./lib/store";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -10,13 +10,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "id is required" });
 
-    const row = await queryOne(
-      `SELECT id, result FROM analysis_cache WHERE id = $1`,
-      [id]
-    );
+    const row = getCacheById(id);
     if (!row) return res.status(404).json({ error: "Not found" });
 
-    res.json(row);
+    res.json({ id: row.id, result: row.result });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
