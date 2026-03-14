@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import type { AnalysisResult } from "@/types/repo";
@@ -129,6 +129,16 @@ interface ExportButtonProps {
 const ExportButton = ({ repoName, analysisResult }: ExportButtonProps) => {
   const [exporting, setExporting] = useState(false);
 
+  const copyMermaid = useCallback(() => {
+    if (!analysisResult) return;
+    const mermaid = generateMermaidChart(analysisResult);
+    navigator.clipboard.writeText(mermaid).then(() => {
+      toast({ title: "Mermaid diagram copied!" });
+    }).catch(() => {
+      toast({ title: "Copy failed", variant: "destructive" });
+    });
+  }, [analysisResult]);
+
   const exportMarkdown = useCallback(() => {
     if (!analysisResult) {
       toast({ title: "No analysis to export", variant: "destructive" });
@@ -156,20 +166,32 @@ const ExportButton = ({ repoName, analysisResult }: ExportButtonProps) => {
   }, [repoName, analysisResult]);
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-8 w-8"
-      disabled={exporting || !analysisResult}
-      onClick={exportMarkdown}
-      title="Download Markdown"
-    >
-      {exporting ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <Download className="h-4 w-4" />
-      )}
-    </Button>
+    <div className="flex items-center gap-1">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        disabled={!analysisResult}
+        onClick={copyMermaid}
+        title="Copy Mermaid Diagram"
+      >
+        <Copy className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        disabled={exporting || !analysisResult}
+        onClick={exportMarkdown}
+        title="Download Markdown"
+      >
+        {exporting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Download className="h-4 w-4" />
+        )}
+      </Button>
+    </div>
   );
 };
 
