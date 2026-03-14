@@ -25,6 +25,7 @@ export type Database = {
           repo_url: string
           result: Json
           total_files: number | null
+          version: number
           was_truncated: boolean | null
         }
         Insert: {
@@ -37,6 +38,7 @@ export type Database = {
           repo_url: string
           result: Json
           total_files?: number | null
+          version?: number
           was_truncated?: boolean | null
         }
         Update: {
@@ -49,9 +51,51 @@ export type Database = {
           repo_url?: string
           result?: Json
           total_files?: number | null
+          version?: number
           was_truncated?: boolean | null
         }
         Relationships: []
+      }
+      analysis_history: {
+        Row: {
+          cache_id: string | null
+          created_at: string
+          edge_count: number | null
+          id: string
+          node_count: number | null
+          repo_name: string
+          repo_url: string
+          version: number
+        }
+        Insert: {
+          cache_id?: string | null
+          created_at?: string
+          edge_count?: number | null
+          id?: string
+          node_count?: number | null
+          repo_name: string
+          repo_url: string
+          version?: number
+        }
+        Update: {
+          cache_id?: string | null
+          created_at?: string
+          edge_count?: number | null
+          id?: string
+          node_count?: number | null
+          repo_name?: string
+          repo_url?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_history_cache_id_fkey"
+            columns: ["cache_id"]
+            isOneToOne: false
+            referencedRelation: "analysis_cache"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

@@ -280,7 +280,7 @@ serve(async (req) => {
       try {
         const { data: cached } = await db
           .from("analysis_cache")
-          .select("result, repo_name")
+          .select("id, result, repo_name")
           .eq("repo_url", repoUrl)
           .gt("expires_at", new Date().toISOString())
           .order("created_at", { ascending: false })
@@ -293,7 +293,7 @@ serve(async (req) => {
           const cacheStream = new ReadableStream({
             start(controller) {
               controller.enqueue(encoder.encode(JSON.stringify({ type: "progress", step: "done", message: "Loaded from cache" }) + "\n"));
-              controller.enqueue(encoder.encode(JSON.stringify({ type: "result", data: { ...cached.result, cached: true } }) + "\n"));
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "result", data: { ...cached.result, cached: true, _cacheId: cached.id } }) + "\n"));
               controller.close();
             },
           });
@@ -572,8 +572,8 @@ Focus on architecture structure. Keep summaries concise.`;
             edges: parsed.edges || [],
           };
 
-          // Store result in DB cache (fire-and-forget, don't block response)
-          db.from("analysis_cache").insert({
+          // Store result in DB cache and history (fire-and-forget)
+          const cacheInsert = db.from("analysis_cache").insert({
             repo_url: repoUrl,
             repo_name: `${owner}/${repo}`,
             result,
@@ -581,8 +581,26 @@ Focus on architecture structure. Keep summaries concise.`;
             node_count: (parsed.nodes || []).length,
             edge_count: (parsed.edges || []).length,
             was_truncated: wasTruncated,
-          }).then(({ error: cacheErr }) => {
-            if (cacheErr) console.error("Cache store error:", cacheErr);
+          }).select("id").single();
+
+          cacheInsert.then(({ data: cacheData, error: cacheErr }) => {
+            if (cacheErr) {
+              console.error("Cache store error:", cacheErr);
+              return;
+            }
+            // Also insert into history
+            db.from("analysis_history").insert({
+              repo_url: repoUrl,
+              repo_name: `${owner}/${repo}`,
+              cache_id: cacheData.id,
+              node_count: (parsed.nodes || []).length,
+              edge_count: (parsed.edges || []).length,
+            }).then(({ error: histErr }) => {
+              if (histErr) console.error("History store error:", histErr);
+            });
+
+            // Attach cache ID to result
+            result._cacheId = cacheData.id;
           });
 
           send({ type: "result", data: result });
