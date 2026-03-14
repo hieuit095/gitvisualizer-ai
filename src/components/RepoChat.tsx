@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageCircle, X, Send, Loader2, Bot, User, Sparkles, FileCode } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Bot, User, Sparkles, FileCode, Search, Database } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import type { AnalysisResult } from "@/types/repo";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; searchMeta?: SearchMeta };
+type SearchMeta = { method: "vector" | "text" | "none"; chunks: number };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-repo`;
 
@@ -107,6 +108,7 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
       setIsStreaming(true);
 
       let assistantSoFar = "";
+      let currentSearchMeta: SearchMeta | undefined;
 
       try {
         const resp = await fetch(CHAT_URL, {
@@ -143,10 +145,10 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
             const last = prev[prev.length - 1];
             if (last?.role === "assistant") {
               return prev.map((m, i) =>
-                i === prev.length - 1 ? { ...m, content: assistantSoFar } : m
+                i === prev.length - 1 ? { ...m, content: assistantSoFar, searchMeta: currentSearchMeta } : m
               );
             }
-            return [...prev, { role: "assistant", content: assistantSoFar }];
+            return [...prev, { role: "assistant", content: assistantSoFar, searchMeta: currentSearchMeta }];
           });
         };
 
@@ -169,6 +171,11 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
 
             try {
               const parsed = JSON.parse(jsonStr);
+              // Check for search metadata event
+              if (parsed.searchMeta) {
+                currentSearchMeta = parsed.searchMeta;
+                continue;
+              }
               const content = parsed.choices?.[0]?.delta?.content as string | undefined;
               if (content) upsertAssistant(content);
             } catch {
@@ -304,22 +311,38 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
                       }`}
                     >
                       {msg.role === "assistant" ? (
-                        <div className="prose prose-sm prose-invert max-w-none [&_code]:rounded [&_code]:bg-background/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-lg [&_pre]:bg-background/50 [&_pre]:p-2 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0">
-                          <ReactMarkdown
-                            components={{
-                              // Render citation patterns [file:L##-L##] as badges
-                              p: ({ children, ...props }) => {
-                                const processed = processCitations(children);
-                                return <p {...props}>{processed}</p>;
-                              },
-                              li: ({ children, ...props }) => {
-                                const processed = processCitations(children);
-                                return <li {...props}>{processed}</li>;
-                              },
-                            }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
+                        <div>
+                          {msg.searchMeta && msg.searchMeta.method !== "none" && (
+                            <div className="mb-1.5 flex items-center gap-1.5">
+                              <Badge
+                                variant="outline"
+                                className="gap-1 border-primary/20 bg-primary/5 px-1.5 py-0 text-[9px] font-medium text-primary/70"
+                              >
+                                {msg.searchMeta.method === "vector" ? (
+                                  <Database className="h-2.5 w-2.5" />
+                                ) : (
+                                  <Search className="h-2.5 w-2.5" />
+                                )}
+                                {msg.searchMeta.method === "vector" ? "Vector" : "Text"} search · {msg.searchMeta.chunks} chunks
+                              </Badge>
+                            </div>
+                          )}
+                          <div className="prose prose-sm prose-invert max-w-none [&_code]:rounded [&_code]:bg-background/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-lg [&_pre]:bg-background/50 [&_pre]:p-2 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0">
+                            <ReactMarkdown
+                              components={{
+                                p: ({ children, ...props }) => {
+                                  const processed = processCitations(children);
+                                  return <p {...props}>{processed}</p>;
+                                },
+                                li: ({ children, ...props }) => {
+                                  const processed = processCitations(children);
+                                  return <li {...props}>{processed}</li>;
+                                },
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                       ) : (
                         msg.content
