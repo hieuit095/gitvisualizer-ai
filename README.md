@@ -1,73 +1,58 @@
-# Welcome to your Lovable project
+# GitVisualizer AI
 
-## Project info
+GitVisualizer AI is a zero-database, serverless web application that visualizes GitHub repositories, provides RAG code search, and analyzes system architectures using AI. 
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Key Features
 
-## How can I edit this code?
+1. **Zero Database**: No complex database configuration (like Supabase or Postgres) is required. Data is cached in-memory and heavily relies on ephemeral Vercel Serverless Function architecture or a local `data/` directory.
+2. **Flexible AI Providers**: Simply configure the environment variables to use OpenAI, OpenRouter, Together.ai, or Google Gemini.
+3. **Smart Ignore Engine**: Analyzes real source code while cleverly ignoring artifacts, build outputs, and vendor folders.
 
-There are several ways of editing your application.
+## How to Run Locally
 
-**Use Lovable**
+To get started on your personal machine without needing any database setup:
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+1. Clone the repository:
+   ```bash
+   git clone <YOUR_GIT_URL>
+   cd gitvisualizer-ai
+   ```
 
-Changes made via Lovable will be committed automatically to this repo.
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-**Use your preferred IDE**
+3. Setup environment variables:
+   Copy `.env.example` to `.env` and fill in your keys:
+   ```bash
+   cp .env.example .env
+   ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+   **Example `.env`**:
+   ```env
+   # Choose from: "openai", "openrouter", "together", "gemini"
+   AI_PROVIDER=openai
+   AI_API_KEY=sk-your-api-key
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+   # Optional GitHub Token (to avoid rate limits for repo reading)
+   GITHUB_TOKEN=ghp_...
+   ```
 
-Follow these steps:
+4. Run the development server:
+   ```bash
+   npm run dev
+   ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Deploying to Vercel
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+Deployment is as simple as running standard Vercel configurations. Since the app is completely stateless and serverless, no external Postgres/Supabase instance is needed.
 
-# Step 3: Install the necessary dependencies.
-npm i
+1. Install the Vercel CLI or connect your GitHub repository to Vercel.
+2. Ensure you add `AI_PROVIDER` and `AI_API_KEY` (and optionally `GITHUB_TOKEN`) to your project's Environment Variables in the Vercel dashboard.
+3. Click deploy! The `/api/*` endpoints handle all necessary AI embedding and chat workflows on the fly.
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+## Technologies Used
 
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- **Frontend**: Vite, React 18, TypeScript, Tailwind CSS, shadcn-ui
+- **Backend / AI APIs**: Vercel Serverless Functions (`/api`), native `fetch` wrappers for streaming LLM outputs.
