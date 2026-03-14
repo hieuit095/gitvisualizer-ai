@@ -22,6 +22,16 @@ function getGitHubHeaders(userToken?: string): Record<string, string> {
   return headers;
 }
 
+function decodeBase64Utf8(base64: string): string {
+  const cleaned = base64.replace(/\n/g, "");
+  const binaryStr = atob(cleaned);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -47,8 +57,7 @@ serve(async (req) => {
       if (res.ok) {
         const data = await res.json();
         if (data.content) {
-          fileContent = atob(data.content.replace(/\n/g, ""));
-          // Limit to 8KB for LLM context
+          fileContent = decodeBase64Utf8(data.content);
           if (fileContent.length > 8000) fileContent = fileContent.slice(0, 8000) + "\n// ... truncated";
         }
       } else {

@@ -40,6 +40,12 @@ const LOCK_FILES = new Set([
 
 const FILE_SIZE_THRESHOLD = 100 * 1024; // 100KB
 
+// Allowed hidden files that should not be filtered
+const ALLOWED_HIDDEN_FILES = new Set([
+  ".gitignore", ".env.example", ".editorconfig", ".eslintrc",
+  ".eslintrc.js", ".eslintrc.json", ".prettierrc", ".prettierrc.json",
+]);
+
 function parseGitignore(content: string): ((path: string) => boolean) {
   const rules: { pattern: RegExp; negate: boolean }[] = [];
   for (const raw of content.split("\n")) {
@@ -47,17 +53,16 @@ function parseGitignore(content: string): ((path: string) => boolean) {
     if (!line || line.startsWith("#")) continue;
     const negate = line.startsWith("!");
     if (negate) line = line.slice(1);
-    // Convert gitignore glob to regex
     let regex = line
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&") // escape regex chars except * and ?
-      .replace(/\*\*/g, "§§") // placeholder for **
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*/g, "§§")
       .replace(/\*/g, "[^/]*")
       .replace(/\?/g, "[^/]")
       .replace(/§§/g, ".*");
     if (line.endsWith("/")) regex = regex.slice(0, -2) + "(/|$)";
     if (!line.includes("/")) regex = "(^|.*/)" + regex;
     else if (!line.startsWith("/")) regex = "(^|.*/)" + regex;
-    else regex = "^" + regex.slice(2); // remove leading /
+    else regex = "^" + regex.slice(2);
     try {
       rules.push({ pattern: new RegExp(regex), negate });
     } catch { /* skip invalid patterns */ }
@@ -73,30 +78,25 @@ function parseGitignore(content: string): ((path: string) => boolean) {
 
 function isBlockedByEngine(path: string, size?: number): boolean {
   const segments = path.split("/");
-  // Check blocked directories
   for (const seg of segments.slice(0, -1)) {
     if (BLOCKED_DIRS.has(seg)) return true;
     if (seg.startsWith(".") && seg.length > 1 && seg !== ".github") return true;
   }
   const filename = segments[segments.length - 1];
-  // Check lock files
   if (LOCK_FILES.has(filename)) return true;
-  // Check file extension
   const dotIdx = filename.lastIndexOf(".");
   if (dotIdx !== -1) {
     const ext = filename.slice(dotIdx).toLowerCase();
     if (BLOCKED_EXTENSIONS.has(ext)) return true;
-    // Double extensions like .tar.gz
     const prevDot = filename.lastIndexOf(".", dotIdx - 1);
     if (prevDot !== -1) {
       const doubleExt = filename.slice(prevDot).toLowerCase();
       if (BLOCKED_EXTENSIONS.has(doubleExt)) return true;
     }
   }
-  // File size threshold
   if (size !== undefined && size > FILE_SIZE_THRESHOLD) return true;
-  // Hidden files (except common ones)
-  if (filename.startsWith(".") && !["gitignore", ".env.example", ".editorconfig"].some(f => filename === f)) return true;
+  // Hidden files — allow known config files
+  if (filename.startsWith(".") && !ALLOWED_HIDDEN_FILES.has(filename)) return true;
   return false;
 }
 
@@ -113,10 +113,58 @@ const SOURCE_EXTENSIONS = new Set([
 
 function isSourceFile(path: string): boolean {
   const name = path.split("/").pop() || "";
-  // Common config files without extensions
   if (["Makefile", "Dockerfile", "Procfile", "Rakefile", "Gemfile", "Pipfile"].includes(name)) return true;
   const ext = name.split(".").pop()?.toLowerCase() || "";
   return SOURCE_EXTENSIONS.has(ext);
+}
+
+// ─── Base64 → UTF-8 safe decoding ─────────────────────────────────────
+
+function decodeBase64Utf8(base64: string): string {
+  const cleaned = base64.replace(/\n/g, "");
+  const binaryStr = atob(cleaned);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+// ─── Concurrency-limited fetch ─────────────────────────────────────────
+
+async function fetchWithConcurrency<T>(
+  items: T[],
+  fn: (item: T) => Promise<void>,
+  concurrency = 5,
+  retries = 2,
+): Promise<void> {
+  let index = 0;
+
+  async function worker() {
+    while (index < items.length) {
+      const currentIndex = index++;
+      const item = items[currentIndex];
+      let attempt = 0;
+      while (attempt <= retries) {
+        try {
+          await fn(item);
+          break;
+        } catch (e: any) {
+          if (attempt < retries && (e?.status === 429 || e?.message?.includes("rate limit"))) {
+            // Exponential backoff on rate limit
+            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+            attempt++;
+          } else {
+            // Non-retryable or exhausted retries — skip silently
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
 }
 
 // ─── File Classification & Priority ────────────────────────────────────
@@ -167,7 +215,6 @@ function extractShallowInfo(path: string, content: string): ShallowFileInfo {
   const exports: string[] = [];
   const signatures: string[] = [];
 
-  // Extract import statements
   const importRegex = /(?:import\s+(?:(?:\{[^}]*\}|[\w*]+)\s+from\s+)?['"]([^'"]+)['"]|from\s+(\S+)\s+import|require\(['"]([^'"]+)['"]\))/g;
   let match;
   while ((match = importRegex.exec(content)) !== null) {
@@ -175,13 +222,11 @@ function extractShallowInfo(path: string, content: string): ShallowFileInfo {
     if (mod) imports.push(mod);
   }
 
-  // Extract export names
   const exportRegex = /export\s+(?:default\s+)?(?:function|class|const|let|var|interface|type|enum)\s+(\w+)/g;
   while ((match = exportRegex.exec(content)) !== null) {
     if (match[1]) exports.push(match[1]);
   }
 
-  // Extract function/class signatures (first line only)
   const sigRegex = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+(\w+)|class\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(|def\s+(\w+)|func\s+(\w+)|fn\s+(\w+))/gm;
   while ((match = sigRegex.exec(content)) !== null) {
     const name = match[1] || match[2] || match[3] || match[4] || match[5] || match[6];
@@ -226,7 +271,6 @@ serve(async (req) => {
 
     const ghHeaders = getGitHubHeaders(githubToken);
 
-    // Use streaming to send progress updates
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -266,7 +310,6 @@ serve(async (req) => {
           // ─── Step 2: Smart Ignore filtering ────────────────
           send({ type: "progress", step: "filter", message: "Applying Smart Ignore filters..." });
 
-          // Try to fetch .gitignore for dynamic filtering
           let gitignoreFilter: ((path: string) => boolean) | null = null;
           try {
             const giRes = await fetch(
@@ -276,11 +319,11 @@ serve(async (req) => {
             if (giRes.ok) {
               const giData = await giRes.json();
               if (giData.content) {
-                const decoded = atob(giData.content.replace(/\n/g, ""));
+                const decoded = decodeBase64Utf8(giData.content);
                 gitignoreFilter = parseGitignore(decoded);
               }
             } else {
-              await giRes.text(); // consume
+              await giRes.text();
             }
           } catch { /* no .gitignore */ }
 
@@ -298,7 +341,6 @@ serve(async (req) => {
             filteredOut, kept: sourceFiles.length,
           });
 
-          // Sort by priority and limit
           const prioritized = sourceFiles.sort((a, b) => filePriority(b.path) - filePriority(a.path));
           const MAX_FILES = 80;
           const limitedFiles = prioritized.slice(0, MAX_FILES);
@@ -310,31 +352,32 @@ serve(async (req) => {
             message: `Extracting imports & signatures from ${limitedFiles.length} files...`,
           });
 
-          // Fetch content for top priority files (up to 25 for content extraction)
           const contentTargets = limitedFiles.slice(0, 25);
           const fileContents: Record<string, string> = {};
 
-          await Promise.all(
-            contentTargets.map(async (f) => {
-              try {
-                const res = await fetch(
-                  `https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`,
-                  { headers: ghHeaders }
-                );
-                if (res.ok) {
-                  const data = await res.json();
-                  if (data.content) {
-                    const decoded = atob(data.content.replace(/\n/g, ""));
-                    fileContents[f.path] = decoded.slice(0, 3000);
-                  }
-                } else {
-                  await res.text();
-                }
-              } catch { /* skip */ }
-            })
-          );
+          // Use concurrency-limited fetching (5 at a time with retry)
+          await fetchWithConcurrency(contentTargets, async (f) => {
+            const res = await fetch(
+              `https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`,
+              { headers: ghHeaders }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data.content) {
+                const decoded = decodeBase64Utf8(data.content);
+                fileContents[f.path] = decoded.slice(0, 3000);
+              }
+            } else {
+              const status = res.status;
+              await res.text(); // consume body
+              if (status === 429 || status === 403) {
+                const err = new Error("rate limit");
+                (err as any).status = 429;
+                throw err;
+              }
+            }
+          }, 5, 2);
 
-          // Extract shallow info from fetched content
           const shallowMap: ShallowFileInfo[] = limitedFiles.map(f => {
             const content = fileContents[f.path];
             if (content) return extractShallowInfo(f.path, content);
@@ -349,7 +392,6 @@ serve(async (req) => {
           // ─── Step 4: Pass 2 — AI structural analysis ──────
           send({ type: "progress", step: "analyze", message: "AI analyzing architecture..." });
 
-          // Build compact prompt with shallow data
           const shallowSummary = shallowMap
             .map(f => {
               let line = `- ${f.path} [${f.type}]`;
@@ -361,7 +403,7 @@ serve(async (req) => {
             .join("\n");
 
           const contentSection = Object.entries(fileContents)
-            .slice(0, 15) // Only top 15 file contents for AI
+            .slice(0, 15)
             .map(([path, content]) => `### ${path}\n\`\`\`\n${content.slice(0, 1500)}\n\`\`\``)
             .join("\n\n");
 

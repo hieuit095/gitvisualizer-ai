@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { GitBranch, Sparkles, ArrowRight, Github, Loader2, Lock } from "lucide-react";
+import { GitBranch, Sparkles, ArrowRight, Github, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
@@ -11,10 +11,9 @@ const GITHUB_URL_REGEX = /^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/;
 
 const Index = () => {
   const [url, setUrl] = useState("");
-  const [isValidating, setIsValidating] = useState(false);
   const navigate = useNavigate();
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = () => {
     if (!url.trim()) {
       toast({ title: "Please enter a GitHub URL", variant: "destructive" });
       return;
@@ -23,7 +22,6 @@ const Index = () => {
       toast({ title: "Invalid GitHub URL", description: "Please enter a valid public repo URL (e.g. https://github.com/user/repo)", variant: "destructive" });
       return;
     }
-    setIsValidating(true);
     navigate(`/visualize?repo=${encodeURIComponent(url.trim())}`);
   };
 
@@ -90,24 +88,18 @@ const Index = () => {
             <Input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !isValidating && handleAnalyze()}
+              onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
               placeholder="https://github.com/user/repo"
-              disabled={isValidating}
               className="h-12 border-border/50 bg-card pl-11 font-mono text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
             />
           </div>
           <Button
             onClick={handleAnalyze}
-            disabled={isValidating}
             className="h-12 gap-2 bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary/90"
           >
-            {isValidating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-            {isValidating ? "Loading…" : "Analyze"}
-            {!isValidating && <ArrowRight className="h-4 w-4" />}
+            <Sparkles className="h-4 w-4" />
+            Analyze
+            <ArrowRight className="h-4 w-4" />
           </Button>
         </motion.div>
 
