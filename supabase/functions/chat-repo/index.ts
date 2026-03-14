@@ -81,11 +81,18 @@ serve(async (req) => {
       // Fall back to text search if vector search didn't return results
       if (!ragContext) {
         try {
-          const { data: chunks } = await db.rpc("match_code_chunks", {
+          console.log(`Text search: query="${userQuery}", repo="${repoContext.repoUrl}"`);
+          const { data: chunks, error: rpcError } = await db.rpc("match_code_chunks", {
             query_text: userQuery,
             match_repo_url: repoContext.repoUrl,
             match_count: 15,
           });
+
+          if (rpcError) {
+            console.error("Text search RPC error:", rpcError);
+          }
+
+          console.log(`Text search returned ${chunks?.length ?? 0} chunks`);
 
           if (chunks && chunks.length > 0) {
             searchMethod = "text";
