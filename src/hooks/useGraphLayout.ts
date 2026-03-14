@@ -11,7 +11,6 @@ function getCssVar(name: string): string {
 
 function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB") {
   const primaryColor = getCssVar("--primary") || "hsl(187, 80%, 48%)";
-  const secondaryColor = getCssVar("--secondary") || "hsl(263, 70%, 58%)";
   const mutedFgColor = getCssVar("--muted-foreground") || "hsl(215, 16%, 56%)";
   const cardColor = getCssVar("--card") || "hsl(240, 15%, 8%)";
 
@@ -21,6 +20,12 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
   const folderNodeIds = new Set(
     result.nodes.filter((n) => n.type === "folder").map((n) => n.id)
   );
+
+  // Build a name lookup for edge tooltips
+  const nameMap = new Map<string, string>();
+  for (const n of result.nodes) {
+    nameMap.set(n.id, n.name);
+  }
 
   for (const e of result.edges) {
     if (e.type === "contains" && folderNodeIds.has(e.source)) {
@@ -42,7 +47,6 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
     };
 
     if (isGroup) {
-      // Group nodes need explicit dimensions (set by layout)
       base.style = { width: 300, height: 200 };
     }
 
@@ -60,13 +64,12 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
     const bIsParent = !parentMap.has(b.id) && folderNodeIds.has(b.id);
     if (aIsParent && !bIsParent) return -1;
     if (!aIsParent && bIsParent) return 1;
-    // Parents of the current node should come before it
     if (a.id === parentMap.get(b.id)) return -1;
     if (b.id === parentMap.get(a.id)) return 1;
     return 0;
   });
 
-  // Build edges — filter out "contains" edges (replaced by visual grouping)
+  // Build edges — filter out "contains" edges, use tooltipEdge type
   const flowEdges: Edge[] = result.edges
     .filter((e) => !containsEdgeIds.has(e.id))
     .map((e) => ({
@@ -74,8 +77,13 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
       source: e.source,
       target: e.target,
       label: e.label,
-      type: "smoothstep",
+      type: "tooltipEdge",
       animated: true,
+      data: {
+        edgeType: e.type,
+        sourceName: nameMap.get(e.source) || e.source,
+        targetName: nameMap.get(e.target) || e.target,
+      },
       style: {
         stroke: primaryColor,
         strokeWidth: 1.5,
@@ -102,7 +110,6 @@ export function useGraphLayout(analysisResult: AnalysisResult | null) {
   const [direction, setDirection] = useState<"TB" | "LR">("TB");
   const { fitView } = useReactFlow();
 
-  // Apply layout when result changes
   useEffect(() => {
     if (!analysisResult) return;
     setDirection("TB");
