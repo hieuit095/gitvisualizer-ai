@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { X, FileText, Zap, Link2, Code2, MapPin, Loader2, RefreshCw, MessageCircle } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -44,20 +44,97 @@ function detectLanguage(path: string): string {
   return map[ext] || "typescript";
 }
 
+// ─── Line reference parsing ────────────────────────────────────────────
+// Matches patterns like: "line 42", "lines 208-250", "(line 112)", "L42-L58"
+const LINE_REF_REGEX = /\b(?:lines?\s+(\d+)(?:\s*[-–]\s*(\d+))?|L(\d+)(?:\s*[-–]\s*L(\d+))?)\b/gi;
+
+interface LineRange {
+  start: number;
+  end: number;
+}
+
+function parseLineRanges(text: string): LineRange[] {
+  const ranges: LineRange[] = [];
+  let match;
+  const re = new RegExp(LINE_REF_REGEX.source, LINE_REF_REGEX.flags);
+  while ((match = re.exec(text)) !== null) {
+    const start = parseInt(match[1] || match[3], 10);
+    const end = match[2] || match[4] ? parseInt(match[2] || match[4], 10) : start;
+    if (!isNaN(start)) ranges.push({ start, end });
+  }
+  return ranges;
+}
+
+/** Render text with clickable line references */
+function TextWithLineRefs({
+  text,
+  onLineClick,
+  activeRange,
+}: {
+  text: string;
+  onLineClick: (range: LineRange) => void;
+  activeRange: LineRange | null;
+}) {
+  const parts: (string | { text: string; range: LineRange })[] = [];
+  let lastIndex = 0;
+  const re = new RegExp(LINE_REF_REGEX.source, LINE_REF_REGEX.flags);
+  let match;
+
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const start = parseInt(match[1] || match[3], 10);
+    const end = match[2] || match[4] ? parseInt(match[2] || match[4], 10) : start;
+    parts.push({ text: match[0], range: { start, end } });
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (typeof part === "string") return <span key={i}>{part}</span>;
+        const isActive =
+          activeRange &&
+          activeRange.start === part.range.start &&
+          activeRange.end === part.range.end;
+        return (
+          <button
+            key={i}
+            onClick={() => onLineClick(part.range)}
+            className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[11px] font-medium transition-colors cursor-pointer border ${
+              isActive
+                ? "bg-primary/25 text-primary border-primary/50"
+                : "bg-primary/10 text-primary/80 border-primary/20 hover:bg-primary/20 hover:text-primary"
+            }`}
+          >
+            <Code2 className="h-2.5 w-2.5" />
+            {part.text}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
 const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: InfoPanelProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
+  const [highlightedRange, setHighlightedRange] = useState<LineRange | null>(null);
+  const codePreviewRef = useRef<HTMLDivElement>(null);
 
-  // Reset state when node changes and trigger lazy load
   useEffect(() => {
     if (!node) {
       setDetail(null);
       setError(null);
+      setHighlightedRange(null);
       return;
     }
 
-    // If detail already loaded on the node, use it
     if (node.detailLoaded && node.tutorial) {
       setDetail({
         summary: node.summary,
@@ -66,17 +143,18 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
         codeSnippet: node.codeSnippet || "",
       });
       setError(null);
+      setHighlightedRange(null);
       return;
     }
 
-    // For folders, skip lazy load
     if (node.type === "folder") {
       setDetail(null);
       setError(null);
+      setHighlightedRange(null);
       return;
     }
 
-    // Trigger lazy AI summarization
+    setHighlightedRange(null);
     loadDetail(node);
   }, [node?.id]);
 
@@ -100,6 +178,26 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
     }
   };
 
+  const handleLineClick = useCallback((range: LineRange) => {
+    setHighlightedRange(prev =>
+      prev && prev.start === range.start && prev.end === range.end ? null : range
+    );
+    // Scroll to code preview
+    setTimeout(() => {
+      codePreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+  }, []);
+
+  // Compute highlighted line numbers set
+  const highlightedLines = useMemo(() => {
+    if (!highlightedRange) return new Set<number>();
+    const lines = new Set<number>();
+    for (let i = highlightedRange.start; i <= highlightedRange.end; i++) {
+      lines.add(i);
+    }
+    return lines;
+  }, [highlightedRange]);
+
   if (!node) return null;
 
   const colorClass = typeColors[node.type] || typeColors.other;
@@ -107,6 +205,9 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
   const displayFunctions = detail?.keyFunctions?.length ? detail.keyFunctions : node.keyFunctions;
   const displayTutorial = detail?.tutorial || node.tutorial;
   const displaySnippet = detail?.codeSnippet || node.codeSnippet;
+
+  // Determine if code snippet has line numbers we can reference
+  const snippetStartLine = 1; // Default; code preview starts at line 1
 
   return (
     <>
@@ -140,7 +241,15 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
                 <Zap className="h-3 w-3" /> Summary
               </h4>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                {displaySummary || "No summary available."}
+                {displaySummary ? (
+                  <TextWithLineRefs
+                    text={displaySummary}
+                    onLineClick={handleLineClick}
+                    activeRange={highlightedRange}
+                  />
+                ) : (
+                  "No summary available."
+                )}
               </p>
             </div>
 
@@ -178,7 +287,13 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
                   {displayFunctions.map((fn, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
                       <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary" />
-                      <code className="font-mono text-xs text-foreground">{fn}</code>
+                      <code className="font-mono text-xs text-foreground">
+                        <TextWithLineRefs
+                          text={fn}
+                          onLineClick={handleLineClick}
+                          activeRange={highlightedRange}
+                        />
+                      </code>
                     </li>
                   ))}
                 </ul>
@@ -193,7 +308,13 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
                   <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
                     <Link2 className="h-3 w-3" /> How It Connects
                   </h4>
-                  <p className="text-sm leading-relaxed text-muted-foreground">{displayTutorial}</p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    <TextWithLineRefs
+                      text={displayTutorial}
+                      onLineClick={handleLineClick}
+                      activeRange={highlightedRange}
+                    />
+                  </p>
                 </div>
               </>
             )}
@@ -202,15 +323,52 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
             {displaySnippet && (
               <>
                 <Separator className="bg-border" />
-                <div>
-                  <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
-                    <Code2 className="h-3 w-3" /> Code Preview
-                  </h4>
+                <div ref={codePreviewRef}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
+                      <Code2 className="h-3 w-3" /> Code Preview
+                    </h4>
+                    {highlightedRange && (
+                      <Badge
+                        variant="outline"
+                        className="cursor-pointer border-primary/30 text-[10px] text-primary hover:bg-primary/10"
+                        onClick={() => setHighlightedRange(null)}
+                      >
+                        Lines {highlightedRange.start}
+                        {highlightedRange.end !== highlightedRange.start
+                          ? `–${highlightedRange.end}`
+                          : ""}
+                        {" "}✕
+                      </Badge>
+                    )}
+                  </div>
                   <div className="overflow-hidden rounded-md border border-border">
                     <SyntaxHighlighter
                       language={detectLanguage(node.path)}
                       style={oneDark}
-                      customStyle={{ margin: 0, padding: "12px", fontSize: "11px", background: "hsl(var(--background))" }}
+                      showLineNumbers
+                      wrapLines
+                      lineProps={(lineNumber: number) => {
+                        const isHighlighted = highlightedLines.has(lineNumber);
+                        return {
+                          style: {
+                            display: "block",
+                            backgroundColor: isHighlighted
+                              ? "hsl(var(--primary) / 0.15)"
+                              : undefined,
+                            borderLeft: isHighlighted
+                              ? "3px solid hsl(var(--primary))"
+                              : "3px solid transparent",
+                            paddingLeft: isHighlighted ? "9px" : "12px",
+                          },
+                        };
+                      }}
+                      customStyle={{
+                        margin: 0,
+                        padding: "12px 0",
+                        fontSize: "11px",
+                        background: "hsl(var(--background))",
+                      }}
                     >
                       {displaySnippet}
                     </SyntaxHighlighter>
