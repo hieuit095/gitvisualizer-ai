@@ -311,22 +311,38 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
                       }`}
                     >
                       {msg.role === "assistant" ? (
-                        <div className="prose prose-sm prose-invert max-w-none [&_code]:rounded [&_code]:bg-background/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-lg [&_pre]:bg-background/50 [&_pre]:p-2 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0">
-                          <ReactMarkdown
-                            components={{
-                              // Render citation patterns [file:L##-L##] as badges
-                              p: ({ children, ...props }) => {
-                                const processed = processCitations(children);
-                                return <p {...props}>{processed}</p>;
-                              },
-                              li: ({ children, ...props }) => {
-                                const processed = processCitations(children);
-                                return <li {...props}>{processed}</li>;
-                              },
-                            }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
+                        <div>
+                          {msg.searchMeta && msg.searchMeta.method !== "none" && (
+                            <div className="mb-1.5 flex items-center gap-1.5">
+                              <Badge
+                                variant="outline"
+                                className="gap-1 border-primary/20 bg-primary/5 px-1.5 py-0 text-[9px] font-medium text-primary/70"
+                              >
+                                {msg.searchMeta.method === "vector" ? (
+                                  <Database className="h-2.5 w-2.5" />
+                                ) : (
+                                  <Search className="h-2.5 w-2.5" />
+                                )}
+                                {msg.searchMeta.method === "vector" ? "Vector" : "Text"} search · {msg.searchMeta.chunks} chunks
+                              </Badge>
+                            </div>
+                          )}
+                          <div className="prose prose-sm prose-invert max-w-none [&_code]:rounded [&_code]:bg-background/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-lg [&_pre]:bg-background/50 [&_pre]:p-2 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0">
+                            <ReactMarkdown
+                              components={{
+                                p: ({ children, ...props }) => {
+                                  const processed = processCitations(children);
+                                  return <p {...props}>{processed}</p>;
+                                },
+                                li: ({ children, ...props }) => {
+                                  const processed = processCitations(children);
+                                  return <li {...props}>{processed}</li>;
+                                },
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                       ) : (
                         msg.content
