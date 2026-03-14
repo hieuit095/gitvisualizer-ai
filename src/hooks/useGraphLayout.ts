@@ -20,6 +20,7 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
   const folderNodeIds = new Set(
     result.nodes.filter((n) => n.type === "folder").map((n) => n.id)
   );
+  const groupNodeIds = new Set<string>();
 
   // Build a name lookup for edge tooltips
   const nameMap = new Map<string, string>();
@@ -31,12 +32,13 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
     if (e.type === "contains" && folderNodeIds.has(e.source)) {
       parentMap.set(e.target, e.source);
       containsEdgeIds.add(e.id);
+      groupNodeIds.add(e.source);
     }
   }
 
   // Build nodes — folders with children become group nodes, children get parentId
   const flowNodes: Node[] = result.nodes.map((n) => {
-    const isGroup = folderNodeIds.has(n.id) && [...parentMap.values()].includes(n.id);
+    const isGroup = folderNodeIds.has(n.id) && groupNodeIds.has(n.id);
     const parentId = parentMap.get(n.id);
 
     const base: Node = {
@@ -45,10 +47,6 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
       position: { x: 0, y: 0 },
       data: { ...n, direction } as Record<string, unknown>,
     };
-
-    if (isGroup) {
-      base.style = { width: 300, height: 200 };
-    }
 
     if (parentId) {
       base.parentId = parentId;
@@ -116,7 +114,8 @@ export function useGraphLayout(analysisResult: AnalysisResult | null) {
     const { nodes: ln, edges: le } = buildFlowElements(analysisResult, "TB");
     setNodes(ln);
     setEdges(le);
-  }, [analysisResult, setNodes, setEdges]);
+    setTimeout(() => fitView({ duration: 300, padding: 0.2 }), 50);
+  }, [analysisResult, fitView, setNodes, setEdges]);
 
   const toggleDirection = useCallback(() => {
     if (!analysisResult) return;
