@@ -572,6 +572,19 @@ Focus on architecture structure. Keep summaries concise.`;
             edges: parsed.edges || [],
           };
 
+          // Store result in DB cache (fire-and-forget, don't block response)
+          db.from("analysis_cache").insert({
+            repo_url: repoUrl,
+            repo_name: `${owner}/${repo}`,
+            result,
+            total_files: totalFiles,
+            node_count: (parsed.nodes || []).length,
+            edge_count: (parsed.edges || []).length,
+            was_truncated: wasTruncated,
+          }).then(({ error: cacheErr }) => {
+            if (cacheErr) console.error("Cache store error:", cacheErr);
+          });
+
           send({ type: "result", data: result });
           controller.close();
         } catch (e) {

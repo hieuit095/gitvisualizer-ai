@@ -6,10 +6,11 @@ export type ProgressCallback = (event: ProgressEvent) => void;
 export async function analyzeRepository(
   repoUrl: string,
   githubToken?: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  forceRefresh = false
 ): Promise<AnalysisResult> {
   const { data, error } = await supabase.functions.invoke("analyze-repo", {
-    body: { repoUrl, githubToken },
+    body: { repoUrl, githubToken, forceRefresh },
   });
 
   if (error) {

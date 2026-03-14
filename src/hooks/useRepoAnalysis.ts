@@ -52,7 +52,7 @@ export function useRepoAnalysis(repoUrl: string) {
       setProgressStep(0);
       setProgressEvents([]);
 
-      // Try cache first
+      // Try localStorage cache first (fastest)
       if (!forceRefresh) {
         const cached = loadCachedAnalysis(repoUrl);
         if (cached) {
