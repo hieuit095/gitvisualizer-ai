@@ -4,7 +4,7 @@ import { toast } from "@/hooks/use-toast";
 import { getStoredToken } from "@/components/GitHubTokenDialog";
 import { analyzeRepository } from "@/lib/analysis";
 import { loadCachedAnalysis, cacheAnalysis } from "@/lib/analysisCache";
-import type { AnalysisResult, RepoNode, ProgressEvent, NodeDetail } from "@/types/repo";
+import type { AnalysisResult, ProgressEvent, NodeDetail } from "@/types/repo";
 
 const stepMapping: Record<string, number> = {
   fetch: 0, fetch_done: 0,
@@ -75,6 +75,7 @@ export function useRepoAnalysis(repoUrl: string) {
             }
           },
           forceRefresh
+        );
 
         applyResult(result);
         cacheAnalysis(repoUrl, result);
