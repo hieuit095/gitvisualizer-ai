@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { chatCompletion } from "./lib/ai-client";
-import { getChunksForFile } from "./lib/store";
+import { chatCompletion } from "./lib/ai-client.js";
+import { getChunksForFile } from "./lib/store.js";
 
 function decodeBase64Utf8(base64: string): string {
   return Buffer.from(base64.replace(/\n/g, ""), "base64").toString("utf-8");

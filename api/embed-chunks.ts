@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client";
-import { deleteChunksForRepo, storeChunk, flushChunksToDisk } from "./lib/store";
+import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client.js";
+import { deleteChunksForRepo, storeChunk, flushChunksToDisk } from "./lib/store.js";
 
 function decodeBase64Utf8(base64: string): string {
   return Buffer.from(base64.replace(/\n/g, ""), "base64").toString("utf-8");
