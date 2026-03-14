@@ -73,6 +73,16 @@ export function useRepoAnalysis(repoUrl: string) {
             if (stepIdx !== undefined) {
               setProgressStep(stepIdx);
             }
+          },
+          forceRefresh
+        );
+          getStoredToken() || undefined,
+          (event) => {
+            setProgressEvents((prev) => [...prev, event]);
+            const stepIdx = stepMapping[event.step];
+            if (stepIdx !== undefined) {
+              setProgressStep(stepIdx);
+            }
           }
         );
 
