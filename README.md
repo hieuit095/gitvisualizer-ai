@@ -90,7 +90,7 @@ To run the project locally on your machine:
 
 1. **Clone the repository:**
    ```bash
-   git clone <YOUR_GIT_URL>
+   git clone https://github.com/hieuit095/gitvisualizer-ai/
    cd gitvisualizer-ai
    ```
 
