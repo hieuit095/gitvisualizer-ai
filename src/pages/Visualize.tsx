@@ -49,6 +49,7 @@ const VisualizeInner = () => {
     runAnalysis,
     handleNodeDetailLoaded,
     setAnalysisResult,
+    indexingStatus,
   } = useRepoAnalysis(repoUrl);
 
   const {

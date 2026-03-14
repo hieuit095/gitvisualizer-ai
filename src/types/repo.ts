@@ -42,9 +42,16 @@ export interface AnalysisResult {
   edges: RepoEdge[];
 }
 
+export interface CodeReference {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
+
 export interface NodeDetail {
   summary: string;
   keyFunctions: string[];
   tutorial: string;
   codeSnippet: string;
+  references?: CodeReference[];
 }

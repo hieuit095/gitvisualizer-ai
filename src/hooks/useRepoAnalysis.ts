@@ -4,6 +4,7 @@ import { toast } from "@/hooks/use-toast";
 import { getStoredToken } from "@/components/GitHubTokenDialog";
 import { analyzeRepository } from "@/lib/analysis";
 import { loadCachedAnalysis, cacheAnalysis } from "@/lib/analysisCache";
+import { supabase } from "@/integrations/supabase/client";
 import type { AnalysisResult, ProgressEvent, NodeDetail } from "@/types/repo";
 
 const stepMapping: Record<string, number> = {
@@ -28,6 +29,7 @@ export function useRepoAnalysis(repoUrl: string) {
     wasTruncated?: boolean;
     filteredOut?: number;
   }>({});
+  const [indexingStatus, setIndexingStatus] = useState<"idle" | "indexing" | "done">("idle");
 
   const applyResult = useCallback((result: AnalysisResult) => {
     setProgressStep(4);
@@ -80,6 +82,21 @@ export function useRepoAnalysis(repoUrl: string) {
         applyResult(result);
         cacheAnalysis(repoUrl, result);
 
+        // Fire-and-forget: index code chunks for RAG
+        setIndexingStatus("indexing");
+        supabase.functions
+          .invoke("embed-chunks", {
+            body: { repoUrl, githubToken: getStoredToken() || undefined },
+          })
+          .then(({ error }) => {
+            if (error) console.error("Embed-chunks error:", error);
+            setIndexingStatus("done");
+          })
+          .catch((err) => {
+            console.error("Embed-chunks error:", err);
+            setIndexingStatus("done");
+          });
+
         setTimeout(() => {
           setLoading(false);
           if (result.wasTruncated) {
@@ -123,6 +140,7 @@ export function useRepoAnalysis(repoUrl: string) {
     analysisResult,
     repoName,
     repoMeta,
+    indexingStatus,
     runAnalysis,
     handleNodeDetailLoaded,
     setAnalysisResult,
