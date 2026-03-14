@@ -41,16 +41,26 @@ const GitHubTokenDialog = ({ trigger }: GitHubTokenDialogProps) => {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState(() => getStoredToken());
   const [showToken, setShowToken] = useState(false);
-  const hasToken = !!getStoredToken();
+  const [hasToken, setHasToken] = useState(() => !!getStoredToken());
+
+  // Refresh on open
+  useEffect(() => {
+    if (open) {
+      setToken(getStoredToken());
+      setHasToken(!!getStoredToken());
+    }
+  }, [open]);
 
   const handleSave = () => {
     storeToken(token.trim());
+    setHasToken(!!token.trim());
     setOpen(false);
   };
 
   const handleClear = () => {
     setToken("");
     storeToken("");
+    setHasToken(false);
     setOpen(false);
   };
 
