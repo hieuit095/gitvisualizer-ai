@@ -140,6 +140,7 @@ export function useRepoAnalysis(repoUrl: string) {
     analysisResult,
     repoName,
     repoMeta,
+    indexingStatus,
     runAnalysis,
     handleNodeDetailLoaded,
     setAnalysisResult,
