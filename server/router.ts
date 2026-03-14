@@ -7,7 +7,7 @@ import history from "./controllers/history.js";
 import shared from "./controllers/shared.js";
 import summarizeNode from "./controllers/summarize-node.js";
 
-type RouteHandler = (req: VercelRequest, res: VercelResponse) => Promise<void> | void;
+type RouteHandler = (req: VercelRequest, res: VercelResponse) => Promise<VercelResponse | void> | VercelResponse | void;
 
 const ROUTES: Record<string, RouteHandler> = {
   "analyze-repo": analyzeRepo,
