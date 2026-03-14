@@ -108,6 +108,7 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
       setIsStreaming(true);
 
       let assistantSoFar = "";
+      let currentSearchMeta: SearchMeta | undefined;
 
       try {
         const resp = await fetch(CHAT_URL, {
@@ -144,10 +145,10 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
             const last = prev[prev.length - 1];
             if (last?.role === "assistant") {
               return prev.map((m, i) =>
-                i === prev.length - 1 ? { ...m, content: assistantSoFar } : m
+                i === prev.length - 1 ? { ...m, content: assistantSoFar, searchMeta: currentSearchMeta } : m
               );
             }
-            return [...prev, { role: "assistant", content: assistantSoFar }];
+            return [...prev, { role: "assistant", content: assistantSoFar, searchMeta: currentSearchMeta }];
           });
         };
 
