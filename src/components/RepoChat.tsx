@@ -31,6 +31,12 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps)
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Refs to avoid stale closures
+  const messagesRef = useRef<Message[]>(messages);
+  messagesRef.current = messages;
+  const isStreamingRef = useRef(false);
+  isStreamingRef.current = isStreaming;
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -48,24 +54,12 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps)
     setMessages([]);
   }, [analysisResult?.repoName]);
 
-  // Handle "ask about node" trigger from diagram clicks
-  useEffect(() => {
-    if (askAboutNode && analysisResult && !isStreaming) {
-      setOpen(true);
-      // Small delay to ensure panel is open before sending
-      setTimeout(() => {
-        sendMessage(askAboutNode);
-        onAskHandled?.();
-      }, 100);
-    }
-  }, [askAboutNode]);
-
   const sendMessage = useCallback(
     async (text: string) => {
-      if (!text.trim() || isStreaming || !analysisResult) return;
+      if (!text.trim() || isStreamingRef.current || !analysisResult) return;
 
       const userMsg: Message = { role: "user", content: text.trim() };
-      const updatedMessages = [...messages, userMsg];
+      const updatedMessages = [...messagesRef.current, userMsg];
       setMessages(updatedMessages);
       setInput("");
       setIsStreaming(true);
@@ -166,8 +160,20 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps)
         setIsStreaming(false);
       }
     },
-    [messages, isStreaming, analysisResult]
+    [analysisResult]
   );
+
+  // Handle "ask about node" trigger from diagram clicks
+  useEffect(() => {
+    if (askAboutNode && analysisResult && !isStreamingRef.current) {
+      setOpen(true);
+      // Use requestAnimationFrame to ensure panel is rendered
+      requestAnimationFrame(() => {
+        sendMessage(askAboutNode);
+        onAskHandled?.();
+      });
+    }
+  }, [askAboutNode, analysisResult, sendMessage, onAskHandled]);
 
   if (!analysisResult) return null;
 

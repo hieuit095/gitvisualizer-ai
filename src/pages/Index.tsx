@@ -14,7 +14,7 @@ const Index = () => {
   const [isValidating, setIsValidating] = useState(false);
   const navigate = useNavigate();
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = () => {
     if (!url.trim()) {
       toast({ title: "Please enter a GitHub URL", variant: "destructive" });
       return;
@@ -23,7 +23,6 @@ const Index = () => {
       toast({ title: "Invalid GitHub URL", description: "Please enter a valid public repo URL (e.g. https://github.com/user/repo)", variant: "destructive" });
       return;
     }
-    setIsValidating(true);
     navigate(`/visualize?repo=${encodeURIComponent(url.trim())}`);
   };
 
