@@ -4,6 +4,7 @@ import { toast } from "@/hooks/use-toast";
 import { getStoredToken } from "@/components/GitHubTokenDialog";
 import { analyzeRepository } from "@/lib/analysis";
 import { loadCachedAnalysis, cacheAnalysis } from "@/lib/analysisCache";
+import { supabase } from "@/integrations/supabase/client";
 import type { AnalysisResult, ProgressEvent, NodeDetail } from "@/types/repo";
 
 const stepMapping: Record<string, number> = {
