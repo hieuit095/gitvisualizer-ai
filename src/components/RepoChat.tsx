@@ -24,6 +24,46 @@ interface RepoChatProps {
   onAskHandled?: () => void;
 }
 
+// Citation pattern: [filename:L##-L##] or [filename:L##]
+const CITATION_REGEX = /\[([^\]]+?):L(\d+)(?:-L(\d+))?\]/g;
+
+function processCitations(children: React.ReactNode): React.ReactNode {
+  if (!children) return children;
+  if (typeof children === "string") {
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+    const regex = new RegExp(CITATION_REGEX.source, "g");
+    while ((match = regex.exec(children)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(children.slice(lastIndex, match.index));
+      }
+      const file = match[1];
+      const startLine = match[2];
+      const endLine = match[3] || startLine;
+      parts.push(
+        <Badge
+          key={`${match.index}`}
+          variant="outline"
+          className="mx-0.5 inline-flex cursor-default items-center gap-1 border-primary/30 bg-primary/10 px-1.5 py-0 text-[10px] font-mono text-primary hover:bg-primary/20"
+          title={`${file} lines ${startLine}-${endLine}`}
+        >
+          <FileCode className="h-2.5 w-2.5" />
+          {file.split("/").pop()}:L{startLine}{endLine !== startLine ? `-L${endLine}` : ""}
+        </Badge>
+      );
+      lastIndex = regex.lastIndex;
+    }
+    if (parts.length === 0) return children;
+    if (lastIndex < children.length) parts.push(children.slice(lastIndex));
+    return <>{parts}</>;
+  }
+  if (Array.isArray(children)) {
+    return children.map((child, i) => <span key={i}>{processCitations(child)}</span>);
+  }
+  return children;
+}
+
 const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
