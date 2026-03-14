@@ -15,31 +15,85 @@ function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB"
   const mutedFgColor = getCssVar("--muted-foreground") || "hsl(215, 16%, 56%)";
   const cardColor = getCssVar("--card") || "hsl(240, 15%, 8%)";
 
-  const flowNodes: Node[] = result.nodes.map((n) => ({
-    id: n.id,
-    type: n.type === "folder" ? "folderNode" : "fileNode",
-    position: { x: 0, y: 0 },
-    data: { ...n, direction } as Record<string, unknown>,
-  }));
+  // Build parent map from "contains" edges
+  const parentMap = new Map<string, string>();
+  const containsEdgeIds = new Set<string>();
+  const folderNodeIds = new Set(
+    result.nodes.filter((n) => n.type === "folder").map((n) => n.id)
+  );
 
-  const flowEdges: Edge[] = result.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-    type: "smoothstep",
-    animated: true,
-    style: {
-      stroke: e.type === "contains" ? secondaryColor : primaryColor,
-      strokeWidth: 1.5,
-    },
-    labelStyle: { fill: mutedFgColor, fontSize: 10, fontWeight: 500 },
-    labelBgStyle: { fill: cardColor, fillOpacity: 0.9 },
-    labelBgPadding: [6, 3] as [number, number],
-    labelBgBorderRadius: 4,
-  }));
+  for (const e of result.edges) {
+    if (e.type === "contains" && folderNodeIds.has(e.source)) {
+      parentMap.set(e.target, e.source);
+      containsEdgeIds.add(e.id);
+    }
+  }
 
-  return getLayoutedElements(flowNodes, flowEdges, direction);
+  // Build nodes — folders with children become group nodes, children get parentId
+  const flowNodes: Node[] = result.nodes.map((n) => {
+    const isGroup = folderNodeIds.has(n.id) && [...parentMap.values()].includes(n.id);
+    const parentId = parentMap.get(n.id);
+
+    const base: Node = {
+      id: n.id,
+      type: isGroup ? "groupNode" : n.type === "folder" ? "folderNode" : "fileNode",
+      position: { x: 0, y: 0 },
+      data: { ...n, direction } as Record<string, unknown>,
+    };
+
+    if (isGroup) {
+      // Group nodes need explicit dimensions (set by layout)
+      base.style = { width: 300, height: 200 };
+    }
+
+    if (parentId) {
+      base.parentId = parentId;
+      base.extent = "parent";
+    }
+
+    return base;
+  });
+
+  // Sort so parents come before children (React Flow requirement)
+  flowNodes.sort((a, b) => {
+    const aIsParent = !parentMap.has(a.id) && folderNodeIds.has(a.id);
+    const bIsParent = !parentMap.has(b.id) && folderNodeIds.has(b.id);
+    if (aIsParent && !bIsParent) return -1;
+    if (!aIsParent && bIsParent) return 1;
+    // Parents of the current node should come before it
+    if (a.id === parentMap.get(b.id)) return -1;
+    if (b.id === parentMap.get(a.id)) return 1;
+    return 0;
+  });
+
+  // Build edges — filter out "contains" edges (replaced by visual grouping)
+  const flowEdges: Edge[] = result.edges
+    .filter((e) => !containsEdgeIds.has(e.id))
+    .map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      label: e.label,
+      type: "smoothstep",
+      animated: true,
+      style: {
+        stroke: primaryColor,
+        strokeWidth: 1.5,
+      },
+      labelStyle: { fill: mutedFgColor, fontSize: 10, fontWeight: 500 },
+      labelBgStyle: { fill: cardColor, fillOpacity: 0.9 },
+      labelBgPadding: [6, 3] as [number, number],
+      labelBgBorderRadius: 4,
+    }));
+
+  const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+    flowNodes,
+    flowEdges,
+    direction,
+    parentMap.size > 0 ? parentMap : undefined
+  );
+
+  return { nodes: layoutedNodes, edges: layoutedEdges };
 }
 
 export function useGraphLayout(analysisResult: AnalysisResult | null) {
