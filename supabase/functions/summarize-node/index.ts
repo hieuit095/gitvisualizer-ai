@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,7 +15,7 @@ function extractOwnerRepo(url: string): { owner: string; repo: string } {
 
 function getGitHubHeaders(userToken?: string): Record<string, string> {
   const headers: Record<string, string> = {
-    "Accept": "application/vnd.github.v3+json",
+    Accept: "application/vnd.github.v3+json",
     "User-Agent": "GitVisualizer-AI",
   };
   const token = userToken || Deno.env.get("GITHUB_TOKEN");
@@ -45,42 +46,83 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const db = createClient(supabaseUrl, supabaseKey);
+
     const ghHeaders = getGitHubHeaders(githubToken);
 
-    // Fetch full file content
-    let fileContent = "";
+    // ─── Try to get code chunks from RAG database ──────────────
+    let ragChunks: any[] = [];
     try {
-      const res = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
-        { headers: ghHeaders }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (data.content) {
-          fileContent = decodeBase64Utf8(data.content);
-          if (fileContent.length > 8000) fileContent = fileContent.slice(0, 8000) + "\n// ... truncated";
-        }
-      } else {
-        await res.text();
+      const { data } = await db
+        .from("code_chunks")
+        .select("chunk_name, chunk_type, content, start_line, end_line")
+        .eq("repo_url", repoUrl)
+        .eq("file_path", filePath)
+        .order("chunk_index", { ascending: true });
+
+      if (data && data.length > 0) {
+        ragChunks = data;
       }
-    } catch { /* skip */ }
+    } catch (e) {
+      console.error("RAG chunk fetch error:", e);
+    }
+
+    // Fetch full file content (fallback if no RAG chunks)
+    let fileContent = "";
+    if (ragChunks.length === 0) {
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
+          { headers: ghHeaders }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.content) {
+            fileContent = decodeBase64Utf8(data.content);
+            if (fileContent.length > 8000) fileContent = fileContent.slice(0, 8000) + "\n// ... truncated";
+          }
+        } else {
+          await res.text();
+        }
+      } catch {
+        /* skip */
+      }
+    }
+
+    // Build content section from RAG chunks or raw file
+    let contentSection: string;
+    let chunkBoundaries: string[] = [];
+
+    if (ragChunks.length > 0) {
+      contentSection = ragChunks
+        .map((c) => {
+          chunkBoundaries.push(`${c.chunk_type}:${c.chunk_name} (L${c.start_line}-L${c.end_line})`);
+          return `### ${c.chunk_type}: ${c.chunk_name} [L${c.start_line}-L${c.end_line}]\n\`\`\`\n${c.content}\n\`\`\``;
+        })
+        .join("\n\n");
+    } else {
+      contentSection = `\`\`\`\n${fileContent || "Content unavailable"}\n\`\`\``;
+    }
 
     const prompt = `Analyze this file from "${owner}/${repo}" in detail.
 
 ## File: ${filePath}
 ${nodeSummary ? `Brief summary: ${nodeSummary}` : ""}
 
-## Full Content
-\`\`\`
-${fileContent || "Content unavailable"}
-\`\`\`
+## ${ragChunks.length > 0 ? "Code Chunks (from indexed source)" : "Full Content"}
+${contentSection}
+
+${ragChunks.length > 0 ? `## Chunk Boundaries\n${chunkBoundaries.join("\n")}` : ""}
 
 ## Instructions
 Provide a detailed analysis using the tool. Generate:
 - **summary**: A thorough 2-3 sentence description of what this file does and its role in the architecture
 - **keyFunctions**: Array of the key exported functions, classes, or constants with brief descriptions like "functionName - what it does"
-- **tutorial**: How this file connects to and interacts with other parts of the system. Explain the data flow.
-- **codeSnippet**: The most representative 5-10 lines of code that capture the core logic of this file. Use the actual code.`;
+- **tutorial**: How this file connects to and interacts with other parts of the system. Explain the data flow.${ragChunks.length > 0 ? " Reference specific line ranges like [L##-L##] when citing code." : ""}
+- **codeSnippet**: The most representative 5-10 lines of code that capture the core logic of this file. Use the actual code.
+- **references**: Array of objects with filePath, startLine, endLine for the code sections you referenced in your analysis.`;
 
     const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -91,7 +133,10 @@ Provide a detailed analysis using the tool. Generate:
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: "You are a code analysis expert. Provide detailed, accurate file analysis." },
+          {
+            role: "system",
+            content: "You are a code analysis expert. Provide detailed, accurate file analysis. Always cite specific line numbers when referencing code.",
+          },
           { role: "user", content: prompt },
         ],
         tools: [
@@ -107,6 +152,19 @@ Provide a detailed analysis using the tool. Generate:
                   keyFunctions: { type: "array", items: { type: "string" } },
                   tutorial: { type: "string" },
                   codeSnippet: { type: "string" },
+                  references: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        filePath: { type: "string" },
+                        startLine: { type: "integer" },
+                        endLine: { type: "integer" },
+                      },
+                      required: ["filePath", "startLine", "endLine"],
+                      additionalProperties: false,
+                    },
+                  },
                 },
                 required: ["summary", "keyFunctions", "tutorial", "codeSnippet"],
                 additionalProperties: false,
@@ -121,7 +179,8 @@ Provide a detailed analysis using the tool. Generate:
     if (!aiRes.ok) {
       if (aiRes.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Try again shortly." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const errText = await aiRes.text();
@@ -145,7 +204,8 @@ Provide a detailed analysis using the tool. Generate:
     console.error("summarize-node error:", e);
     const message = e instanceof Error ? e.message : "Unknown error";
     return new Response(JSON.stringify({ error: message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

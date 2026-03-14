@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,23 +25,49 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // Build a concise context string from the analysis result
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const db = createClient(supabaseUrl, supabaseKey);
+
+    // ─── RAG: Retrieve relevant code chunks ────────────────────
+    const userQuery = messages[messages.length - 1]?.content || "";
+    let ragContext = "";
+
+    if (repoContext.repoUrl && userQuery) {
+      try {
+        const { data: chunks } = await db.rpc("match_code_chunks", {
+          query_text: userQuery,
+          match_repo_url: repoContext.repoUrl,
+          match_count: 15,
+        });
+
+        if (chunks && chunks.length > 0) {
+          ragContext = "\n\n## Retrieved Code Chunks (from actual source code)\n" +
+            chunks
+              .map(
+                (c: any) =>
+                  `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name})\n\`\`\`\n${c.content}\n\`\`\``
+              )
+              .join("\n\n");
+        }
+      } catch (e) {
+        console.error("RAG retrieval error:", e);
+        // Fall through to use node context as fallback
+      }
+    }
+
+    // ─── Build compact repo structure ──────────────────────────
     const nodesSummary = (repoContext.nodes || [])
-      .map((n: any) => {
-        let entry = `- **${n.name}** (${n.type}) [${n.path}]: ${n.summary || ""}`;
-        if (n.keyFunctions?.length) entry += `\n  Functions: ${n.keyFunctions.join(", ")}`;
-        if (n.codeSnippet) entry += `\n  \`\`\`\n  ${n.codeSnippet}\n  \`\`\``;
-        return entry;
-      })
+      .map((n: any) => `- **${n.name}** (${n.type}) [${n.path}]: ${n.summary || ""}`)
       .join("\n");
 
     const edgesSummary = (repoContext.edges || [])
       .map((e: any) => `- ${e.source} → ${e.target} (${e.type}${e.label ? ": " + e.label : ""})`)
       .join("\n");
 
-    const systemPrompt = `You are an expert code assistant analyzing the GitHub repository "${repoContext.repoName || "unknown"}".
+    const hasRagChunks = ragContext.length > 0;
 
-You have deep knowledge of this codebase from the architecture analysis below. Answer questions about the code structure, dependencies, how components work together, and suggest improvements. Be specific and reference actual files/functions when possible.
+    const systemPrompt = `You are an expert code assistant analyzing the GitHub repository "${repoContext.repoName || "unknown"}".
 
 ## Repository Architecture
 
@@ -49,11 +76,12 @@ ${nodesSummary}
 
 ### Dependencies & Relationships
 ${edgesSummary}
+${ragContext}
 
 ## Guidelines
-- Reference specific file paths and function names in your answers
-- Explain data flows by tracing through the dependency graph
-- When asked "where is X", identify the most relevant file(s)
+- ${hasRagChunks ? "**ALWAYS cite your sources** using the format \`[filename:L##-L##]\` when referencing code from the retrieved chunks above." : "Reference specific file paths and function names in your answers."}
+- ${hasRagChunks ? "Base your answers on the actual code shown in the retrieved chunks. Do NOT invent code that isn't shown." : "Explain data flows by tracing through the dependency graph."}
+- When asked "where is X", identify the most relevant file(s)${hasRagChunks ? " and cite the exact line ranges" : ""}
 - Provide code examples when helpful
 - Be concise but thorough
 - Use markdown formatting for readability`;
