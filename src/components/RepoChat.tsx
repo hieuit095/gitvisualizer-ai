@@ -48,6 +48,18 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps)
     setMessages([]);
   }, [analysisResult?.repoName]);
 
+  // Handle "ask about node" trigger from diagram clicks
+  useEffect(() => {
+    if (askAboutNode && analysisResult && !isStreaming) {
+      setOpen(true);
+      // Small delay to ensure panel is open before sending
+      setTimeout(() => {
+        sendMessage(askAboutNode);
+        onAskHandled?.();
+      }, 100);
+    }
+  }, [askAboutNode]);
+
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim() || isStreaming || !analysisResult) return;
