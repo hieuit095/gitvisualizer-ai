@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from "react";
 import { History, ChevronRight, Clock, GitCompare, X, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { supabase } from "@/integrations/supabase/client";
 import type { AnalysisResult } from "@/types/repo";
 
 interface HistoryEntry {
@@ -23,7 +22,6 @@ interface DiffResult {
 function computeDiff(oldResult: AnalysisResult, newResult: AnalysisResult): DiffResult {
   const oldIds = new Set(oldResult.nodes.map((n) => n.id));
   const newIds = new Set(newResult.nodes.map((n) => n.id));
-
   return {
     added: newResult.nodes.filter((n) => !oldIds.has(n.id)).map((n) => n.name),
     removed: oldResult.nodes.filter((n) => !newIds.has(n.id)).map((n) => n.name),
@@ -47,15 +45,14 @@ const AnalysisHistory = ({ repoUrl, currentResult, onLoadVersion }: AnalysisHist
   const fetchHistory = useCallback(async () => {
     if (!repoUrl) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from("analysis_history")
-      .select("id, cache_id, version, node_count, edge_count, created_at")
-      .eq("repo_url", repoUrl)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (!error && data) {
-      setHistory(data as HistoryEntry[]);
+    try {
+      const res = await fetch(`/api/history?repo=${encodeURIComponent(repoUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistory(data as HistoryEntry[]);
+      }
+    } catch (e) {
+      console.error("History fetch error:", e);
     }
     setLoading(false);
   }, [repoUrl]);
@@ -65,31 +62,33 @@ const AnalysisHistory = ({ repoUrl, currentResult, onLoadVersion }: AnalysisHist
   }, [open, fetchHistory]);
 
   const loadVersion = async (cacheId: string) => {
-    const { data, error } = await supabase
-      .from("analysis_cache")
-      .select("result")
-      .eq("id", cacheId)
-      .maybeSingle();
-
-    if (!error && data?.result) {
-      onLoadVersion(data.result as unknown as AnalysisResult);
-      setOpen(false);
+    try {
+      const res = await fetch(`/api/cache?id=${encodeURIComponent(cacheId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.result) {
+          onLoadVersion(data.result as AnalysisResult);
+          setOpen(false);
+        }
+      }
+    } catch (e) {
+      console.error("Load version error:", e);
     }
   };
 
   const compareVersion = async (entry: HistoryEntry) => {
     if (!currentResult) return;
     setComparingId(entry.id);
-
-    const { data, error } = await supabase
-      .from("analysis_cache")
-      .select("result")
-      .eq("id", entry.cache_id)
-      .maybeSingle();
-
-    if (!error && data?.result) {
-      const oldResult = data.result as unknown as AnalysisResult;
-      setSelectedDiff(computeDiff(oldResult, currentResult));
+    try {
+      const res = await fetch(`/api/cache?id=${encodeURIComponent(entry.cache_id)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.result) {
+          setSelectedDiff(computeDiff(data.result as AnalysisResult, currentResult));
+        }
+      }
+    } catch (e) {
+      console.error("Compare error:", e);
     }
     setComparingId(null);
   };
@@ -126,52 +125,32 @@ const AnalysisHistory = ({ repoUrl, currentResult, onLoadVersion }: AnalysisHist
           )}
 
           {history.map((entry, idx) => (
-            <div
-              key={entry.id}
-              className="rounded-lg border border-border/50 bg-muted/20 p-3 transition-colors hover:bg-muted/40"
-            >
+            <div key={entry.id} className="rounded-lg border border-border/50 bg-muted/20 p-3 transition-colors hover:bg-muted/40">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="font-mono text-xs text-foreground">{formatDate(entry.created_at)}</span>
                   {idx === 0 && (
-                    <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">
-                      Latest
-                    </span>
+                    <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">Latest</span>
                   )}
                 </div>
                 <span className="text-[10px] text-muted-foreground">
                   {entry.node_count} nodes · {entry.edge_count} edges
                 </span>
               </div>
-
               <div className="mt-2 flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1 text-[11px]"
-                  onClick={() => loadVersion(entry.cache_id)}
-                >
-                  <ChevronRight className="h-3 w-3" />
-                  Load
+                <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => loadVersion(entry.cache_id)}>
+                  <ChevronRight className="h-3 w-3" /> Load
                 </Button>
                 {idx > 0 && currentResult && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 text-[11px]"
-                    onClick={() => compareVersion(entry)}
-                    disabled={comparingId === entry.id}
-                  >
-                    <GitCompare className="h-3 w-3" />
-                    Diff vs current
+                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => compareVersion(entry)} disabled={comparingId === entry.id}>
+                    <GitCompare className="h-3 w-3" /> Diff vs current
                   </Button>
                 )}
               </div>
             </div>
           ))}
 
-          {/* Diff overlay */}
           {selectedDiff && (
             <div className="mt-4 rounded-lg border border-border/50 bg-background p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -180,12 +159,9 @@ const AnalysisHistory = ({ repoUrl, currentResult, onLoadVersion }: AnalysisHist
                   <X className="h-3 w-3" />
                 </Button>
               </div>
-
               {selectedDiff.added.length > 0 && (
                 <div className="mb-2">
-                  <p className="mb-1 text-[10px] font-medium text-emerald-400">
-                    + {selectedDiff.added.length} added
-                  </p>
+                  <p className="mb-1 text-[10px] font-medium text-emerald-400">+ {selectedDiff.added.length} added</p>
                   {selectedDiff.added.map((name) => (
                     <div key={name} className="flex items-center gap-1.5 py-0.5">
                       <Circle className="h-2 w-2 fill-emerald-400 text-emerald-400" />
@@ -194,12 +170,9 @@ const AnalysisHistory = ({ repoUrl, currentResult, onLoadVersion }: AnalysisHist
                   ))}
                 </div>
               )}
-
               {selectedDiff.removed.length > 0 && (
                 <div className="mb-2">
-                  <p className="mb-1 text-[10px] font-medium text-red-400">
-                    - {selectedDiff.removed.length} removed
-                  </p>
+                  <p className="mb-1 text-[10px] font-medium text-red-400">- {selectedDiff.removed.length} removed</p>
                   {selectedDiff.removed.map((name) => (
                     <div key={name} className="flex items-center gap-1.5 py-0.5">
                       <Circle className="h-2 w-2 fill-red-400 text-red-400" />
@@ -208,14 +181,10 @@ const AnalysisHistory = ({ repoUrl, currentResult, onLoadVersion }: AnalysisHist
                   ))}
                 </div>
               )}
-
               {selectedDiff.added.length === 0 && selectedDiff.removed.length === 0 && (
                 <p className="text-xs text-muted-foreground">No structural changes detected.</p>
               )}
-
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {selectedDiff.unchanged.length} nodes unchanged
-              </p>
+              <p className="mt-1 text-[10px] text-muted-foreground">{selectedDiff.unchanged.length} nodes unchanged</p>
             </div>
           )}
         </div>

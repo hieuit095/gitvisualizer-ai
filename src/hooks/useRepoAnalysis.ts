@@ -4,7 +4,6 @@ import { toast } from "@/hooks/use-toast";
 import { getStoredToken } from "@/components/GitHubTokenDialog";
 import { analyzeRepository } from "@/lib/analysis";
 import { loadCachedAnalysis, cacheAnalysis } from "@/lib/analysisCache";
-import { supabase } from "@/integrations/supabase/client";
 import type { AnalysisResult, ProgressEvent, NodeDetail } from "@/types/repo";
 
 const stepMapping: Record<string, number> = {
@@ -84,12 +83,13 @@ export function useRepoAnalysis(repoUrl: string) {
 
         // Fire-and-forget: index code chunks for RAG
         setIndexingStatus("indexing");
-        supabase.functions
-          .invoke("embed-chunks", {
-            body: { repoUrl, githubToken: getStoredToken() || undefined },
-          })
-          .then(({ error }) => {
-            if (error) console.error("Embed-chunks error:", error);
+        fetch("/api/embed-chunks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repoUrl, githubToken: getStoredToken() || undefined }),
+        })
+          .then((res) => {
+            if (!res.ok) console.error("Embed-chunks error:", res.status);
             setIndexingStatus("done");
           })
           .catch((err) => {

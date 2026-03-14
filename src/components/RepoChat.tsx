@@ -10,7 +10,7 @@ import type { AnalysisResult } from "@/types/repo";
 type Message = { role: "user" | "assistant"; content: string; searchMeta?: SearchMeta };
 type SearchMeta = { method: "vector" | "text" | "none"; chunks: number };
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-repo`;
+const CHAT_URL = `/api/chat-repo`;
 
 const SUGGESTED_QUESTIONS = [
   "What is the main architecture of this project?",
@@ -115,7 +115,6 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus =
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           },
           body: JSON.stringify({
             messages: updatedMessages,

@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import type { AnalysisResult } from "@/types/repo";
 
 const SharedView = () => {
   const { id } = useParams<{ id: string }>();
@@ -17,27 +15,21 @@ const SharedView = () => {
     }
 
     const load = async () => {
-      const { data, error: dbError } = await supabase
-        .from("analysis_cache")
-        .select("repo_url, result, expires_at")
-        .eq("id", id)
-        .maybeSingle();
+      try {
+        const res = await fetch(`/api/shared?id=${encodeURIComponent(id)}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error || "Analysis not found or has expired");
+          setLoading(false);
+          return;
+        }
 
-      if (dbError || !data) {
-        setError("Analysis not found or has expired");
+        const data = await res.json();
+        navigate(`/visualize?repo=${encodeURIComponent(data.repo_url)}`, { replace: true });
+      } catch {
+        setError("Failed to load shared analysis");
         setLoading(false);
-        return;
       }
-
-      // Check expiry
-      if (new Date(data.expires_at) < new Date()) {
-        setError("This shared analysis has expired. Re-analyze the repo for a new link.");
-        setLoading(false);
-        return;
-      }
-
-      // Redirect to visualize with the repo URL — the cache will be hit
-      navigate(`/visualize?repo=${encodeURIComponent(data.repo_url)}`, { replace: true });
     };
 
     load();
