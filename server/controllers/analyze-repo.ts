@@ -1,15 +1,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { posix } from "node:path";
-import { chatCompletion } from "./lib/ai-client.js";
-import { getCachedAnalysis, storeAnalysis, addHistory } from "./lib/store.js";
+import { chatCompletion } from "../lib/ai-client.js";
+import { getCachedAnalysis, storeAnalysis, addHistory } from "../lib/store.js";
 import {
   isBlockedRepoPath as isBlockedByEngine,
   isLikelySourceFile as isSourceFile,
   repoFilePriority as filePriority,
-} from "./lib/github.js";
-import { loadRepositorySnapshot } from "./lib/repository-source.js";
-import { analyzeSourceFile, type FileStaticAnalysis } from "./lib/static-analysis.js";
-import { extractStructuredArguments } from "./lib/structured-output.js";
+} from "../lib/github.js";
+import { loadRepositorySnapshot } from "../lib/repository-source.js";
+import { analyzeSourceFile, type FileStaticAnalysis } from "../lib/static-analysis.js";
+import { extractStructuredArguments } from "../lib/structured-output.js";
 
 // ─── Smart Ignore Engine (same as Supabase version) ───────────────────
 

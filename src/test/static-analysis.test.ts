@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeSourceFile, buildStaticChunks } from "../../api/lib/static-analysis";
+import { analyzeSourceFile, buildStaticChunks } from "../../server/lib/static-analysis";
 
 describe("static analysis", () => {
   it("extracts a Tree-sitter skeleton for TypeScript", () => {

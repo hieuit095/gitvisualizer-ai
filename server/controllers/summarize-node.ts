@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { chatCompletion } from "./lib/ai-client.js";
-import { getChunksForFile } from "./lib/store.js";
-import { extractOwnerRepo } from "./lib/github.js";
-import { loadRepositorySnapshot } from "./lib/repository-source.js";
-import { analyzeSourceFile } from "./lib/static-analysis.js";
-import { extractStructuredArguments } from "./lib/structured-output.js";
+import { chatCompletion } from "../lib/ai-client.js";
+import { getChunksForFile } from "../lib/store.js";
+import { extractOwnerRepo } from "../lib/github.js";
+import { loadRepositorySnapshot } from "../lib/repository-source.js";
+import { analyzeSourceFile } from "../lib/static-analysis.js";
+import { extractStructuredArguments } from "../lib/structured-output.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");

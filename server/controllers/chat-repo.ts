@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client.js";
-import { searchChunks, vectorSearchChunks } from "./lib/store.js";
+import { chatCompletion, createEmbeddings, supportsEmbeddings } from "../lib/ai-client.js";
+import { searchChunks, vectorSearchChunks } from "../lib/store.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");

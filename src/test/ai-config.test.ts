@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAiHeaders, resolveAiConfig } from "../../api/lib/ai-config";
+import { buildAiHeaders, resolveAiConfig } from "../../server/lib/ai-config";
 
 describe("resolveAiConfig", () => {
   it("allows custom OpenAI-compatible providers when base URL is supplied", () => {

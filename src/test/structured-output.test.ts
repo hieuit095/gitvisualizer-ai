@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractJsonObject, extractStructuredArguments } from "../../api/lib/structured-output";
+import { extractJsonObject, extractStructuredArguments } from "../../server/lib/structured-output";
 
 describe("structured output parsing", () => {
   it("prefers tool call arguments when present", () => {

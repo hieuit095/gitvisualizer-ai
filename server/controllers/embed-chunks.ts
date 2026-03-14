@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client.js";
-import { deleteChunksForRepo, storeChunk, flushChunksToDisk } from "./lib/store.js";
+import { chatCompletion, createEmbeddings, supportsEmbeddings } from "../lib/ai-client.js";
+import { deleteChunksForRepo, storeChunk, flushChunksToDisk } from "../lib/store.js";
 import {
   isBlockedRepoPath as shouldSkip,
   isLikelySourceFile as isSourceFile,
   repoFilePriority as filePriority,
-} from "./lib/github.js";
-import { loadRepositorySnapshot } from "./lib/repository-source.js";
-import { buildStaticChunks } from "./lib/static-analysis.js";
+} from "../lib/github.js";
+import { loadRepositorySnapshot } from "../lib/repository-source.js";
+import { buildStaticChunks } from "../lib/static-analysis.js";
 
 interface CodeChunk {
   filePath: string; chunkIndex: number; chunkType: string; chunkName: string;
