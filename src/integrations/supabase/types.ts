@@ -164,6 +164,24 @@ export type Database = {
           start_line: number
         }[]
       }
+      match_code_chunks_vector: {
+        Args: {
+          match_count?: number
+          match_repo_url: string
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          chunk_name: string
+          chunk_type: string
+          content: string
+          end_line: number
+          file_path: string
+          id: string
+          similarity: number
+          start_line: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
