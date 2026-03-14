@@ -88,24 +88,18 @@ const Index = () => {
             <Input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !isValidating && handleAnalyze()}
+              onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
               placeholder="https://github.com/user/repo"
-              disabled={isValidating}
               className="h-12 border-border/50 bg-card pl-11 font-mono text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
             />
           </div>
           <Button
             onClick={handleAnalyze}
-            disabled={isValidating}
             className="h-12 gap-2 bg-primary px-6 font-semibold text-primary-foreground hover:bg-primary/90"
           >
-            {isValidating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-            {isValidating ? "Loading…" : "Analyze"}
-            {!isValidating && <ArrowRight className="h-4 w-4" />}
+            <Sparkles className="h-4 w-4" />
+            Analyze
+            <ArrowRight className="h-4 w-4" />
           </Button>
         </motion.div>
 
