@@ -201,6 +201,31 @@ function filePriority(path: string): number {
   return score;
 }
 
+// ─── File Header Extraction (Layer 2) ──────────────────────────────────
+
+function extractFileHeader(content: string, maxLines = 60): string {
+  const lines = content.split("\n");
+  const header: string[] = [];
+  let braceDepth = 0;
+  for (const line of lines) {
+    if (header.length >= maxLines) break;
+    const trimmed = line.trim();
+    const opens = (line.match(/{/g) || []).length;
+    const closes = (line.match(/}/g) || []).length;
+    // Keep line if we're at top level, or it's a declaration/comment/blank
+    if (
+      braceDepth <= 1 ||
+      /^(import|export|interface|type|class|enum|const|let|var|function|async|abstract|public|private|protected|def |fn |func )/.test(trimmed) ||
+      trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*") || trimmed === ""
+    ) {
+      header.push(line);
+    }
+    braceDepth += opens - closes;
+    if (braceDepth < 0) braceDepth = 0;
+  }
+  return header.join("\n");
+}
+
 // ─── Pass 1: Import/Export Extraction ──────────────────────────────────
 
 interface ShallowFileInfo {
@@ -209,6 +234,8 @@ interface ShallowFileInfo {
   imports: string[];
   exports: string[];
   signatures: string[];
+  lineCount?: number;
+  exportCount?: number;
 }
 
 function extractShallowInfo(path: string, content: string): ShallowFileInfo {
@@ -234,7 +261,8 @@ function extractShallowInfo(path: string, content: string): ShallowFileInfo {
     if (name) signatures.push(name);
   }
 
-  return { path, type: classifyFile(path), imports, exports, signatures };
+  const lineCount = content.split("\n").length;
+  return { path, type: classifyFile(path), imports, exports, signatures, lineCount, exportCount: exports.length };
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -387,10 +415,10 @@ serve(async (req) => {
             message: `Extracting imports & signatures from ${limitedFiles.length} files...`,
           });
 
-          const contentTargets = limitedFiles.slice(0, 25);
+          const contentTargets = limitedFiles.slice(0, 40);
           const fileContents: Record<string, string> = {};
 
-          // Use concurrency-limited fetching (5 at a time with retry)
+          // Use concurrency-limited fetching — fetch headers only (Layer 2)
           await fetchWithConcurrency(contentTargets, async (f) => {
             const res = await fetch(
               `https://api.github.com/repos/${owner}/${repo}/contents/${f.path}`,
@@ -400,7 +428,7 @@ serve(async (req) => {
               const data = await res.json();
               if (data.content) {
                 const decoded = decodeBase64Utf8(data.content);
-                fileContents[f.path] = decoded.slice(0, 3000);
+                fileContents[f.path] = extractFileHeader(decoded, 60);
               }
             } else {
               const status = res.status;
@@ -430,6 +458,8 @@ serve(async (req) => {
           const shallowSummary = shallowMap
             .map(f => {
               let line = `- ${f.path} [${f.type}]`;
+              if (f.lineCount) line += ` (${f.lineCount} lines)`;
+              if (f.exportCount) line += ` ${f.exportCount} exports`;
               if (f.exports.length) line += ` exports: ${f.exports.slice(0, 8).join(", ")}`;
               if (f.imports.length) line += ` imports: ${f.imports.slice(0, 8).join(", ")}`;
               if (f.signatures.length) line += ` fns: ${f.signatures.slice(0, 6).join(", ")}`;
@@ -438,8 +468,8 @@ serve(async (req) => {
             .join("\n");
 
           const contentSection = Object.entries(fileContents)
-            .slice(0, 15)
-            .map(([path, content]) => `### ${path}\n\`\`\`\n${content.slice(0, 1500)}\n\`\`\``)
+            .slice(0, 25)
+            .map(([path, content]) => `### ${path}\n\`\`\`\n${content}\n\`\`\``)
             .join("\n\n");
 
           const folders = new Set<string>();
@@ -462,21 +492,23 @@ ${shallowSummary}
 ## Key Directories
 ${[...folders].slice(0, 40).join("\n")}
 
-## File Contents (key files)
+## File Headers (declarations & imports only)
 ${contentSection}
 
 ## Instructions
+You are given only file headers (imports, exports, type/class/function declarations). Do NOT attempt to describe implementation details — only architectural role and relationships.
+
 Generate the architecture using the tool provided. Create:
 1. **nodes**: The ~20-35 most architecturally significant files AND key directories. Each node needs:
    - id, name, type (folder/component/utility/hook/config/entry/style/test/database/api/model/other)
-   - summary: 1-sentence HIGH-LEVEL description (keep brief — detailed summaries load on-demand)
+   - summary: 1-sentence architectural role description (keep brief — detailed summaries load on-demand)
    - keyFunctions: top 3-5 function/export names
    - path: full file path
    Note: Do NOT include tutorial or codeSnippet — those are loaded lazily on user request.
 
 2. **edges**: Dependencies between nodes (id, source, target, type, label)
 
-Focus on architecture structure. Keep summaries concise.`;
+Focus on architecture structure and relationships. Keep summaries to 1 sentence describing the module's role.`;
 
           const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
             method: "POST",
