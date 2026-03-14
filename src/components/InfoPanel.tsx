@@ -1,15 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Code2,
-  FileText,
-  Link2,
-  Loader2,
-  MapPin,
-  MessageCircle,
-  RefreshCw,
-  X,
-  Zap,
-} from "lucide-react";
+import { Code as Code2, FileText, Link2, Loader as Loader2, MapPin, MessageCircle, RefreshCw, X, Zap } from "lucide-react";
 import { fetchNodeDetail } from "@/lib/analysis";
 import { getStoredToken } from "@/lib/githubToken";
 import { SyntaxHighlighter, oneDark } from "@/lib/syntaxHighlighter";
@@ -177,7 +167,7 @@ const InfoPanel = ({
       return;
     }
 
-    if (node.detailLoaded && node.tutorial) {
+    if (node.detailLoaded === true && node.tutorial) {
       setDetail({
         summary: node.summary,
         keyFunctions: node.keyFunctions || [],

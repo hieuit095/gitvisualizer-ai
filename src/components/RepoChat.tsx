@@ -1,16 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Bot,
-  Database,
-  FileCode,
-  Loader2,
-  MessageCircle,
-  Search,
-  Send,
-  Sparkles,
-  User,
-  X,
-} from "lucide-react";
+import { Bot, Database, FileCode, Loader as Loader2, MessageCircle, Search, Send, Sparkles, User, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -101,10 +90,9 @@ const RepoChat = ({
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const messagesRef = useRef<Message[]>(messages);
   const isStreamingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  messagesRef.current = messages;
   isStreamingRef.current = isStreaming;
 
   useEffect(() => {
@@ -127,9 +115,16 @@ const RepoChat = ({
     async (text: string) => {
       if (!text.trim() || isStreamingRef.current || !analysisResult) return;
 
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       const userMessage: Message = { role: "user", content: text.trim() };
-      const updatedMessages = [...messagesRef.current, userMessage];
-      setMessages(updatedMessages);
+      let updatedMessages: Message[] = [];
+      setMessages((prev) => {
+        updatedMessages = [...prev, userMessage];
+        return updatedMessages;
+      });
       setInput("");
       setIsStreaming(true);
 
@@ -140,6 +135,7 @@ const RepoChat = ({
         const response = await fetch(CHAT_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             messages: updatedMessages,
             repoContext: {
@@ -191,30 +187,26 @@ const RepoChat = ({
           });
         };
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        let done = false;
+        while (!done) {
+          const chunk = await reader.read();
+          done = chunk.done;
+          if (!done) {
+            textBuffer += decoder.decode(chunk.value, { stream: true });
+          }
 
-          textBuffer += decoder.decode(value, { stream: true });
-          let newlineIndex = textBuffer.indexOf("\n");
-
-          while (newlineIndex !== -1) {
+          let newlineIndex: number;
+          while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
             let line = textBuffer.slice(0, newlineIndex);
             textBuffer = textBuffer.slice(newlineIndex + 1);
 
             if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (line.startsWith(":") || line.trim() === "") {
-              newlineIndex = textBuffer.indexOf("\n");
-              continue;
-            }
-            if (!line.startsWith("data: ")) {
-              newlineIndex = textBuffer.indexOf("\n");
-              continue;
-            }
+            if (line.startsWith(":") || line.trim() === "") continue;
+            if (!line.startsWith("data: ")) continue;
 
             const jsonString = line.slice(6).trim();
             if (jsonString === "[DONE]") {
-              newlineIndex = -1;
+              done = true;
               break;
             }
 
@@ -222,22 +214,15 @@ const RepoChat = ({
               const parsed = JSON.parse(jsonString);
               if (parsed.searchMeta) {
                 currentSearchMeta = parsed.searchMeta as SearchMeta;
-                newlineIndex = textBuffer.indexOf("\n");
                 continue;
               }
-
-              const content = parsed.choices?.[0]?.delta?.content as
-                | string
-                | undefined;
-              if (content) {
-                upsertAssistant(content);
-              }
+              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+              if (content) upsertAssistant(content);
             } catch {
+              // Incomplete JSON chunk — leave in buffer for next iteration.
               textBuffer = `${line}\n${textBuffer}`;
               break;
             }
-
-            newlineIndex = textBuffer.indexOf("\n");
           }
         }
 
@@ -250,18 +235,15 @@ const RepoChat = ({
             if (jsonString === "[DONE]") continue;
             try {
               const parsed = JSON.parse(jsonString);
-              const content = parsed.choices?.[0]?.delta?.content as
-                | string
-                | undefined;
-              if (content) {
-                upsertAssistant(content);
-              }
+              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+              if (content) upsertAssistant(content);
             } catch {
               // Ignore trailing partial chunks.
             }
           }
         }
       } catch (error: unknown) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
         console.error("Chat error:", error);
         const message =
           error instanceof Error
@@ -279,14 +261,14 @@ const RepoChat = ({
   );
 
   useEffect(() => {
-    if (!askAboutNode || !analysisResult || isStreamingRef.current) return;
+    if (!askAboutNode || !analysisResult || isStreaming) return;
 
     setOpen(true);
     requestAnimationFrame(() => {
       sendMessage(askAboutNode);
       onAskHandled?.();
     });
-  }, [analysisResult, askAboutNode, onAskHandled, sendMessage]);
+  }, [analysisResult, askAboutNode, isStreaming, onAskHandled, sendMessage]);
 
   if (!analysisResult) return null;
 

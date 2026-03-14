@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import { analyzeRepository } from "@/lib/analysis";
@@ -32,6 +32,7 @@ export function useRepoAnalysis(repoUrl: string) {
     filteredOut?: number;
   }>({});
   const [indexingStatus, setIndexingStatus] = useState<"idle" | "indexing" | "done">("idle");
+  const runningRef = useRef(false);
 
   const applyResult = useCallback((result: AnalysisResult) => {
     setProgressStep(4);
@@ -51,6 +52,9 @@ export function useRepoAnalysis(repoUrl: string) {
         return;
       }
 
+      if (runningRef.current) return;
+      runningRef.current = true;
+
       setLoading(true);
       setError(null);
       setProgressStep(0);
@@ -61,6 +65,7 @@ export function useRepoAnalysis(repoUrl: string) {
         if (cached) {
           applyResult(cached);
           setTimeout(() => setLoading(false), 200);
+          runningRef.current = false;
           toast({
             title: "Loaded from cache",
             description:
@@ -124,6 +129,8 @@ export function useRepoAnalysis(repoUrl: string) {
             : "Failed to analyze repository";
         setError(message);
         setLoading(false);
+      } finally {
+        runningRef.current = false;
       }
     },
     [applyResult, navigate, repoUrl],

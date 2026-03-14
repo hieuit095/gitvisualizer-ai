@@ -22,8 +22,17 @@ export interface RepositorySnapshot {
   readGitignore: () => Promise<string | null>;
 }
 
-const checkoutLocks = new Map<string, Promise<string>>();
+const checkoutLocks = new Map<string, { promise: Promise<string>; createdAt: number }>();
 const CHECKOUT_TTL_MS = 10 * 60 * 1000;
+
+function pruneCheckoutLocks(): void {
+  const now = Date.now();
+  for (const [key, entry] of checkoutLocks) {
+    if (now - entry.createdAt > CHECKOUT_TTL_MS) {
+      checkoutLocks.delete(key);
+    }
+  }
+}
 
 function hasGitHubToken(userToken?: string): boolean {
   return Boolean(userToken || process.env.GITHUB_TOKEN);
@@ -91,11 +100,13 @@ async function isFreshCheckout(checkoutDir: string): Promise<boolean> {
 }
 
 async function ensurePublicCheckout(owner: string, repo: string): Promise<string> {
+  pruneCheckoutLocks();
+
   const baseDir = await ensureCheckoutRoot();
   const checkoutDir = getCheckoutPath(baseDir, owner, repo);
   const lockKey = `${owner}/${repo}`.toLowerCase();
   const pending = checkoutLocks.get(lockKey);
-  if (pending) return pending;
+  if (pending) return pending.promise;
 
   const promise = (async () => {
     if (await isFreshCheckout(checkoutDir)) return checkoutDir;
@@ -114,7 +125,7 @@ async function ensurePublicCheckout(owner: string, repo: string): Promise<string
     checkoutLocks.delete(lockKey);
   });
 
-  checkoutLocks.set(lockKey, promise);
+  checkoutLocks.set(lockKey, { promise, createdAt: Date.now() });
   return promise;
 }
 
@@ -190,8 +201,16 @@ export async function loadRepositorySnapshot(
     return cloneSnapshotPromise;
   };
 
+  const GITHUB_FETCH_TIMEOUT_MS = 30_000;
+
+  function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), GITHUB_FETCH_TIMEOUT_MS);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
+
   try {
-    const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`, {
+    const treeRes = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`, {
       headers: ghHeaders,
     });
 
@@ -212,7 +231,7 @@ export async function loadRepositorySnapshot(
 
     const readTextFile = async (filePath: string): Promise<string | null> => {
       try {
-        const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
+        const response = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
           headers: ghHeaders,
         });
         if (!response.ok) {
@@ -240,11 +259,15 @@ export async function loadRepositorySnapshot(
       readTextFile,
       readGitignore: async () => await readTextFile(".gitignore"),
     };
-  } catch (error) {
+  } catch (apiError) {
     try {
       return await getCloneSnapshot();
-    } catch {
-      throw error;
+    } catch (cloneError) {
+      const combinedMessage = [
+        apiError instanceof Error ? apiError.message : String(apiError),
+        cloneError instanceof Error ? cloneError.message : String(cloneError),
+      ].join("; fallback clone also failed: ");
+      throw new Error(combinedMessage);
     }
   }
 }

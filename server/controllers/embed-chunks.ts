@@ -92,6 +92,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const allChunks: CodeChunk[] = [];
     let fetched = 0;
+    let fetchErrors = 0;
     for (const file of targets) {
       try {
         const fileContent = await repoSnapshot.readTextFile(file.path);
@@ -103,7 +104,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (repoSnapshot.source === "github-api" && fetched % 10 === 0) {
           await new Promise(r => setTimeout(r, 500));
         }
-      } catch { }
+      } catch (fileError) {
+        fetchErrors++;
+        console.warn(`embed-chunks: failed to read ${file.path}:`, fileError);
+      }
+    }
+    if (fetchErrors > 0) {
+      console.warn(`embed-chunks: ${fetchErrors} file(s) could not be read`);
     }
 
     // Generate embeddings if supported
@@ -147,7 +154,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
           }
         }
-      } catch { }
+      } catch (summaryError) {
+        console.warn("embed-chunks: summary generation error:", summaryError);
+      }
     }
 
     // Store chunks in memory

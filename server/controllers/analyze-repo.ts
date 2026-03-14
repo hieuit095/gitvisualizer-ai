@@ -42,20 +42,20 @@ function parseGitignore(content: string): ((path: string) => boolean) {
     const negate = line.startsWith("!");
     if (negate) line = line.slice(1);
 
-    let regex = line
+    let regexSource = line
       .replace(/[.+^${}()|[\]\\]/g, "\\$&")
       .replace(/\*\*/g, "__DOUBLE_STAR__")
       .replace(/\*/g, "[^/]*")
       .replace(/\?/g, "[^/]")
       .replace(/__DOUBLE_STAR__/g, ".*");
 
-    if (line.endsWith("/")) regex = regex.slice(0, -2) + "(/|$)";
-    if (!line.includes("/")) regex = "(^|.*/)" + regex;
-    else if (!line.startsWith("/")) regex = "(^|.*/)" + regex;
-    else regex = "^" + regex.slice(2);
+    if (line.endsWith("/")) regexSource = regexSource.slice(0, -2) + "(/|$)";
+    if (!line.includes("/")) regexSource = "(^|.*/)" + regexSource;
+    else if (!line.startsWith("/")) regexSource = "(^|.*/)" + regexSource;
+    else regexSource = "^" + regexSource.slice(2);
 
     try {
-      rules.push({ pattern: new RegExp(regex), negate });
+      rules.push({ pattern: new RegExp(regexSource), negate });
     } catch {
       // Ignore malformed rules and keep the analyzer moving.
     }
@@ -241,7 +241,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const prioritized = sourceFiles.sort((left: any, right: any) => filePriority(right.path) - filePriority(left.path));
-    const MAX_FILES = 80;
+    const MAX_FILES = Math.max(10, Math.min(200, parseInt(process.env.ANALYZE_MAX_FILES || "80", 10) || 80));
     const limitedFiles = prioritized.slice(0, MAX_FILES);
     const wasTruncated = sourceFiles.length > MAX_FILES;
     const importConfigPaths = allFiles

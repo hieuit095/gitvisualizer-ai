@@ -10,6 +10,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
+import { randomUUID } from "node:crypto";
 import { repoFilePriority } from "./github.js";
 
 // ─── Types ─────────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ let analysisHistory: HistoryEntry[] = [];
 let codeChunks: CodeChunk[] = [];
 
 function uuid(): string {
-  return crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return randomUUID();
 }
 
 // ─── Optional File Persistence ─────────────────────────────────────────

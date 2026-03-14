@@ -35,9 +35,35 @@ function getRoutePath(req: VercelRequest): string {
   return "";
 }
 
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+  : ["*"];
+
+function setCorsHeaders(req: VercelRequest, res: VercelResponse): void {
+  const origin = req.headers["origin"] as string | undefined;
+  if (ALLOWED_ORIGINS.includes("*")) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  } else if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+}
+
+function setSecurityHeaders(res: VercelResponse): void {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; frame-ancestors 'none'",
+  );
+}
+
 export default async function routeApiRequest(req: VercelRequest, res: VercelResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "content-type");
+  setCorsHeaders(req, res);
+  setSecurityHeaders(res);
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();

@@ -49,8 +49,10 @@ export function cacheAnalysis(repoUrl: string, result: AnalysisResult): void {
 
     const entry: CachedEntry = { result, timestamp: Date.now() };
     localStorage.setItem(cacheKey(repoUrl), JSON.stringify(entry));
-  } catch {
-    // localStorage full or unavailable — ignore
+  } catch (error) {
+    if (error instanceof DOMException && (error.name === "QuotaExceededError" || error.name === "NS_ERROR_DOM_QUOTA_REACHED")) {
+      console.warn("analysisCache: localStorage quota exceeded — analysis result was not cached.");
+    }
   }
 }
 

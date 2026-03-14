@@ -6,7 +6,11 @@ export interface ChatMessage {
 }
 
 type ChatTool = Record<string, unknown>;
-type ToolChoice = Record<string, unknown> | string;
+type ToolChoice =
+  | "none"
+  | "auto"
+  | "required"
+  | { type: "function"; function: { name: string } };
 
 interface ChatOptions {
   model?: string;

@@ -647,10 +647,49 @@ function safeParseJsonConfig(content: string): Record<string, any> | null {
 }
 
 function stripJsonComments(content: string): string {
-  return content
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "")
-    .replace(/,\s*([}\]])/g, "$1");
+  let result = "";
+  let i = 0;
+  let inString = false;
+
+  while (i < content.length) {
+    const ch = content[i];
+
+    if (inString) {
+      if (ch === "\\" && i + 1 < content.length) {
+        result += ch + content[i + 1];
+        i += 2;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      result += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "/" && content[i + 1] === "/") {
+      while (i < content.length && content[i] !== "\n") i++;
+      continue;
+    }
+
+    if (ch === "/" && content[i + 1] === "*") {
+      i += 2;
+      while (i < content.length && !(content[i] === "*" && content[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+
+    result += ch;
+    i++;
+  }
+
+  return result.replace(/,\s*([}\]])/g, "$1");
 }
 
 function uniqueStrings(values: string[]): string[] {
