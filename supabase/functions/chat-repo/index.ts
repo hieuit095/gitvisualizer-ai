@@ -32,29 +32,78 @@ serve(async (req) => {
     // ─── RAG: Retrieve relevant code chunks ────────────────────
     const userQuery = messages[messages.length - 1]?.content || "";
     let ragContext = "";
+    let searchMethod = "none";
 
     if (repoContext.repoUrl && userQuery) {
+      // Try vector search first (if embeddings are available)
       try {
-        const { data: chunks } = await db.rpc("match_code_chunks", {
-          query_text: userQuery,
-          match_repo_url: repoContext.repoUrl,
-          match_count: 15,
+        const embRes = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "openai/text-embedding-3-small",
+            input: [userQuery],
+            dimensions: 768,
+          }),
         });
 
-        if (chunks && chunks.length > 0) {
-          ragContext = "\n\n## Retrieved Code Chunks (from actual source code)\n" +
-            chunks
-              .map(
-                (c: any) =>
-                  `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name})\n\`\`\`\n${c.content}\n\`\`\``
-              )
-              .join("\n\n");
+        if (embRes.ok) {
+          const embData = await embRes.json();
+          const queryEmbedding = embData.data?.[0]?.embedding;
+
+          if (queryEmbedding) {
+            const { data: chunks } = await db.rpc("match_code_chunks_vector", {
+              query_embedding: JSON.stringify(queryEmbedding),
+              match_repo_url: repoContext.repoUrl,
+              match_threshold: 0.25,
+              match_count: 15,
+            });
+
+            if (chunks && chunks.length > 0) {
+              searchMethod = "vector";
+              ragContext = "\n\n## Retrieved Code Chunks (semantic vector search)\n" +
+                chunks
+                  .map(
+                    (c: any) =>
+                      `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name}) — similarity: ${(c.similarity * 100).toFixed(0)}%\n\`\`\`\n${c.content}\n\`\`\``
+                  )
+                  .join("\n\n");
+            }
+          }
         }
       } catch (e) {
-        console.error("RAG retrieval error:", e);
-        // Fall through to use node context as fallback
+        console.log("Vector search unavailable, falling back to text search:", e);
+      }
+
+      // Fall back to text search if vector search didn't return results
+      if (!ragContext) {
+        try {
+          const { data: chunks } = await db.rpc("match_code_chunks", {
+            query_text: userQuery,
+            match_repo_url: repoContext.repoUrl,
+            match_count: 15,
+          });
+
+          if (chunks && chunks.length > 0) {
+            searchMethod = "text";
+            ragContext = "\n\n## Retrieved Code Chunks (from actual source code)\n" +
+              chunks
+                .map(
+                  (c: any) =>
+                    `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name})\n\`\`\`\n${c.content}\n\`\`\``
+                )
+                .join("\n\n");
+          }
+        } catch (e) {
+          console.error("Text search error:", e);
+        }
       }
     }
+
+    console.log(`RAG search method: ${searchMethod}, context length: ${ragContext.length}`);
 
     // ─── Build compact repo structure ──────────────────────────
     const nodesSummary = (repoContext.nodes || [])
