@@ -111,6 +111,7 @@ export type Database = {
           repo_url: string
           search_vector: unknown
           start_line: number
+          summary: string | null
         }
         Insert: {
           chunk_index?: number
@@ -125,6 +126,7 @@ export type Database = {
           repo_url: string
           search_vector?: unknown
           start_line?: number
+          summary?: string | null
         }
         Update: {
           chunk_index?: number
@@ -139,6 +141,7 @@ export type Database = {
           repo_url?: string
           search_vector?: unknown
           start_line?: number
+          summary?: string | null
         }
         Relationships: []
       }
