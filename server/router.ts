@@ -7,7 +7,7 @@ import history from "./controllers/history.js";
 import shared from "./controllers/shared.js";
 import summarizeNode from "./controllers/summarize-node.js";
 
-type RouteHandler = (req: VercelRequest, res: VercelResponse) => Promise<void> | void;
+type RouteHandler = (req: VercelRequest, res: VercelResponse) => Promise<VercelResponse | void> | VercelResponse | void;
 
 const ROUTES: Record<string, RouteHandler> = {
   "analyze-repo": analyzeRepo,
@@ -21,8 +21,17 @@ const ROUTES: Record<string, RouteHandler> = {
 
 function getRoutePath(req: VercelRequest): string {
   const path = req.query.path;
-  if (Array.isArray(path)) return path.join("/");
-  if (typeof path === "string") return path;
+  if (Array.isArray(path) && path.length > 0) return path.join("/");
+  if (typeof path === "string" && path.trim() !== "") return path;
+
+  if (req.url) {
+    const urlPath = req.url.split('?')[0];
+    const parts = urlPath.replace(/^\//, "").split('/');
+    if (parts[0] === 'api' && parts.length > 1) {
+      return parts.slice(1).join('/');
+    }
+  }
+
   return "";
 }
 
