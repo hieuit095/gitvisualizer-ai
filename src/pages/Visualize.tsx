@@ -14,6 +14,7 @@ import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, Rotat
 import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
 import ShareButton from "@/components/ShareButton";
+import AnalysisHistory from "@/components/AnalysisHistory";
 import NodeSearch from "@/components/NodeSearch";
 import { Button } from "@/components/ui/button";
 import FileNode from "@/components/nodes/FileNode";
@@ -27,7 +28,7 @@ import RepoChat from "@/components/RepoChat";
 import { useRepoAnalysis } from "@/hooks/useRepoAnalysis";
 import { useGraphLayout } from "@/hooks/useGraphLayout";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
-import type { RepoNode, NodeDetail } from "@/types/repo";
+import type { RepoNode, NodeDetail, AnalysisResult } from "@/types/repo";
 
 const nodeTypes = { fileNode: FileNode, folderNode: FolderNode, groupNode: GroupNode };
 const edgeTypes = { tooltipEdge: TooltipEdge };
@@ -47,6 +48,7 @@ const VisualizeInner = () => {
     repoMeta,
     runAnalysis,
     handleNodeDetailLoaded,
+    setAnalysisResult,
   } = useRepoAnalysis(repoUrl);
 
   const {
@@ -65,7 +67,6 @@ const VisualizeInner = () => {
     setSelectedNode(node.data as unknown as RepoNode);
   }, []);
 
-  // Keyboard navigation
   const handleKeySelectNode = useCallback((node: Node) => {
     setSelectedNode(node.data as unknown as RepoNode);
   }, []);
@@ -88,7 +89,10 @@ const VisualizeInner = () => {
     [handleNodeDetailLoaded]
   );
 
-  // Get cache ID for share links
+  const handleLoadVersion = useCallback((result: AnalysisResult) => {
+    setAnalysisResult(result);
+  }, [setAnalysisResult]);
+
   const cacheId = useMemo(() => {
     return analysisResult ? (analysisResult as any)._cacheId : undefined;
   }, [analysisResult]);
@@ -136,44 +140,51 @@ const VisualizeInner = () => {
 
   return (
     <div className="relative h-screen w-screen bg-background">
-      {/* Top bar */}
+      {/* Top bar — responsive */}
       <div
-        className="absolute left-0 top-0 z-40 flex items-center gap-3 border-b border-border/50 bg-card/80 px-4 py-2.5 backdrop-blur-sm"
+        className="absolute left-0 top-0 z-40 flex items-center gap-2 border-b border-border/50 bg-card/80 px-2 py-2 backdrop-blur-sm sm:gap-3 sm:px-4 sm:py-2.5"
         style={{ width: selectedNode ? "calc(100% - 384px)" : "100%" }}
       >
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="h-8 w-8">
+        <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="h-8 w-8 shrink-0">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <GitBranch className="h-4 w-4 text-primary" />
-        <span className="font-mono text-sm font-semibold text-foreground">{repoName}</span>
-        <span className="text-xs text-muted-foreground">
+        <GitBranch className="hidden h-4 w-4 text-primary sm:block" />
+        <span className="truncate font-mono text-xs font-semibold text-foreground sm:text-sm">{repoName}</span>
+        <span className="hidden text-xs text-muted-foreground sm:inline">
           {nodes.length} nodes · {edges.length} edges
         </span>
 
         {repoMeta.wasTruncated && (
-          <span className="flex items-center gap-1 rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">
+          <span className="hidden items-center gap-1 rounded-full border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400 sm:flex">
             <AlertCircle className="h-3 w-3" />
             {repoMeta.totalFiles} files ({repoMeta.filteredOut} filtered)
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
-          <NodeSearch />
+        <div className="ml-auto flex items-center gap-1 sm:gap-2">
+          <div className="hidden sm:block">
+            <NodeSearch />
+          </div>
           <GitHubTokenDialog />
+          <AnalysisHistory
+            repoUrl={repoUrl}
+            currentResult={analysisResult}
+            onLoadVersion={handleLoadVersion}
+          />
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runAnalysis(true)} title="Re-analyze repository">
             <RotateCcw className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="hidden h-8 w-8 sm:inline-flex"
             onClick={toggleDirection}
             title={direction === "TB" ? "Switch to horizontal" : "Switch to vertical"}
           >
             {direction === "TB" ? <ArrowRightLeft className="h-4 w-4" /> : <ArrowDownUp className="h-4 w-4" />}
           </Button>
           <ShareButton repoUrl={repoUrl} cacheId={cacheId} />
-          <ExportButton repoName={repoName} />
+          <ExportButton repoName={repoName} analysisResult={analysisResult} />
         </div>
       </div>
 
@@ -188,17 +199,24 @@ const VisualizeInner = () => {
         defaultEdgeOptions={{ type: "tooltipEdge" }}
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.2}
-        maxZoom={2}
+        minZoom={0.1}
+        maxZoom={3}
         proOptions={{ hideAttribution: true }}
+        /* Touch/gesture support */
+        panOnDrag
+        zoomOnPinch
+        zoomOnScroll
+        panOnScroll={false}
+        preventScrolling
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} className="!bg-background [&>pattern>circle]:fill-muted" />
-        <Controls />
+        <Controls className="!bottom-16 sm:!bottom-4" />
         <MiniMap
           nodeColor={(n) => (n.type === "folderNode" || n.type === "groupNode" ? "var(--color-secondary)" : "var(--color-primary)")}
           maskColor="rgba(0, 0, 0, 0.7)"
           pannable
           zoomable
+          className="!hidden sm:!block"
         />
       </ReactFlow>
 
