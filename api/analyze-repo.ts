@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { chatCompletion } from "./lib/ai-client";
-import { query, queryOne } from "./lib/db";
+import { getCachedAnalysis, storeAnalysis, addHistory } from "./lib/store";
 
 // ─── Smart Ignore Engine (same as Supabase version) ───────────────────
 
