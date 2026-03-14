@@ -330,20 +330,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { owner, repo } = extractOwnerRepo(repoUrl);
 
-    // Check DB cache first
+    // Check cache first
     if (!forceRefresh) {
-      try {
-        const cached = await queryOne(
-          `SELECT id, result, repo_name FROM analysis_cache WHERE repo_url = $1 AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
-          [repoUrl]
-        );
-        if (cached?.result) {
-          res.setHeader("Content-Type", "application/x-ndjson");
-          res.write(JSON.stringify({ type: "progress", step: "done", message: "Loaded from cache" }) + "\n");
-          res.write(JSON.stringify({ type: "result", data: { ...cached.result, cached: true, _cacheId: cached.id } }) + "\n");
-          return res.end();
-        }
-      } catch { /* no cache */ }
+      const cached = getCachedAnalysis(repoUrl);
+      if (cached?.result) {
+        res.setHeader("Content-Type", "application/x-ndjson");
+        res.write(JSON.stringify({ type: "progress", step: "done", message: "Loaded from cache" }) + "\n");
+        res.write(JSON.stringify({ type: "result", data: { ...cached.result, cached: true, _cacheId: cached.id } }) + "\n");
+        return res.end();
+      }
     }
 
     const ghHeaders = getGitHubHeaders(githubToken);
