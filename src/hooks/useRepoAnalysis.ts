@@ -4,7 +4,7 @@ import { toast } from "@/hooks/use-toast";
 import { getStoredToken } from "@/components/GitHubTokenDialog";
 import { analyzeRepository } from "@/lib/analysis";
 import { loadCachedAnalysis, cacheAnalysis } from "@/lib/analysisCache";
-import type { AnalysisResult, RepoNode, ProgressEvent, NodeDetail } from "@/types/repo";
+import type { AnalysisResult, ProgressEvent, NodeDetail } from "@/types/repo";
 
 const stepMapping: Record<string, number> = {
   fetch: 0, fetch_done: 0,
@@ -52,7 +52,7 @@ export function useRepoAnalysis(repoUrl: string) {
       setProgressStep(0);
       setProgressEvents([]);
 
-      // Try cache first
+      // Try localStorage cache first (fastest)
       if (!forceRefresh) {
         const cached = loadCachedAnalysis(repoUrl);
         if (cached) {
@@ -73,7 +73,8 @@ export function useRepoAnalysis(repoUrl: string) {
             if (stepIdx !== undefined) {
               setProgressStep(stepIdx);
             }
-          }
+          },
+          forceRefresh
         );
 
         applyResult(result);

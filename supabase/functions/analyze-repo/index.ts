@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -262,12 +263,46 @@ serve(async (req) => {
   }
 
   try {
-    const { repoUrl, githubToken } = await req.json();
+    const { repoUrl, githubToken, forceRefresh } = await req.json();
     if (!repoUrl) throw new Error("repoUrl is required");
 
     const { owner, repo } = extractOwnerRepo(repoUrl);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+
+    // Initialize Supabase client with service role for DB cache
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const db = createClient(supabaseUrl, supabaseKey);
+
+    // ─── Check DB cache first ────────────────────────────
+    if (!forceRefresh) {
+      try {
+        const { data: cached } = await db
+          .from("analysis_cache")
+          .select("result, repo_name")
+          .eq("repo_url", repoUrl)
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (cached?.result) {
+          // Return cached result immediately as NDJSON
+          const encoder = new TextEncoder();
+          const cacheStream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "progress", step: "done", message: "Loaded from cache" }) + "\n"));
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "result", data: { ...cached.result, cached: true } }) + "\n"));
+              controller.close();
+            },
+          });
+          return new Response(cacheStream, {
+            headers: { ...corsHeaders, "Content-Type": "application/x-ndjson" },
+          });
+        }
+      } catch { /* no cache hit — proceed with analysis */ }
+    }
 
     const ghHeaders = getGitHubHeaders(githubToken);
 
@@ -536,6 +571,19 @@ Focus on architecture structure. Keep summaries concise.`;
             nodes: parsed.nodes || [],
             edges: parsed.edges || [],
           };
+
+          // Store result in DB cache (fire-and-forget, don't block response)
+          db.from("analysis_cache").insert({
+            repo_url: repoUrl,
+            repo_name: `${owner}/${repo}`,
+            result,
+            total_files: totalFiles,
+            node_count: (parsed.nodes || []).length,
+            edge_count: (parsed.edges || []).length,
+            was_truncated: wasTruncated,
+          }).then(({ error: cacheErr }) => {
+            if (cacheErr) console.error("Cache store error:", cacheErr);
+          });
 
           send({ type: "result", data: result });
           controller.close();
