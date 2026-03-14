@@ -22,6 +22,7 @@ interface RepoChatProps {
   analysisResult: AnalysisResult | null;
   askAboutNode?: string | null;
   onAskHandled?: () => void;
+  indexingStatus?: "idle" | "indexing" | "done";
 }
 
 // Citation pattern: [filename:L##-L##] or [filename:L##]
