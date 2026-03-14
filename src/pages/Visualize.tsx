@@ -90,6 +90,7 @@ const VisualizeInner = () => {
   const [direction, setDirection] = useState<"TB" | "LR">("TB");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [repoMeta, setRepoMeta] = useState<{ totalFiles?: number; wasTruncated?: boolean; filteredOut?: number }>({});
+  const [askAboutNode, setAskAboutNode] = useState<string | null>(null);
 
   const runAnalysis = useCallback(async () => {
     if (!repoUrl) {
@@ -295,8 +296,13 @@ const VisualizeInner = () => {
         repoUrl={repoUrl}
         onClose={() => setSelectedNode(null)}
         onNodeDetailLoaded={handleNodeDetailLoaded}
+        onAskChat={(question) => setAskAboutNode(question)}
       />
-      <RepoChat analysisResult={analysisResult} />
+      <RepoChat
+        analysisResult={analysisResult}
+        askAboutNode={askAboutNode}
+        onAskHandled={() => setAskAboutNode(null)}
+      />
     </div>
   );
 };

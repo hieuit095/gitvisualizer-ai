@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, FileText, Zap, Link2, Code2, MapPin, Loader2, RefreshCw } from "lucide-react";
+import { X, FileText, Zap, Link2, Code2, MapPin, Loader2, RefreshCw, MessageCircle } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ interface InfoPanelProps {
   repoUrl: string;
   onClose: () => void;
   onNodeDetailLoaded?: (nodeId: string, detail: NodeDetail) => void;
+  onAskChat?: (question: string) => void;
 }
 
 const typeColors: Record<string, string> = {
@@ -43,7 +44,7 @@ function detectLanguage(path: string): string {
   return map[ext] || "typescript";
 }
 
-const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded }: InfoPanelProps) => {
+const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: InfoPanelProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
@@ -215,6 +216,22 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded }: InfoPanelProp
                     </SyntaxHighlighter>
                   </div>
                 </div>
+              </>
+            )}
+
+            {/* Ask AI about this file */}
+            {node.type !== "folder" && onAskChat && (
+              <>
+                <Separator className="bg-border" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2 border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => onAskChat(`Tell me about the file "${node.name}" at ${node.path}. What does it do, how does it connect to the rest of the codebase, and what are its key responsibilities?`)}
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Ask AI about this file
+                </Button>
               </>
             )}
 

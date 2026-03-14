@@ -19,9 +19,11 @@ const SUGGESTED_QUESTIONS = [
 
 interface RepoChatProps {
   analysisResult: AnalysisResult | null;
+  askAboutNode?: string | null;
+  onAskHandled?: () => void;
 }
 
-const RepoChat = ({ analysisResult }: RepoChatProps) => {
+const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -45,6 +47,18 @@ const RepoChat = ({ analysisResult }: RepoChatProps) => {
   useEffect(() => {
     setMessages([]);
   }, [analysisResult?.repoName]);
+
+  // Handle "ask about node" trigger from diagram clicks
+  useEffect(() => {
+    if (askAboutNode && analysisResult && !isStreaming) {
+      setOpen(true);
+      // Small delay to ensure panel is open before sending
+      setTimeout(() => {
+        sendMessage(askAboutNode);
+        onAskHandled?.();
+      }, 100);
+    }
+  }, [askAboutNode]);
 
   const sendMessage = useCallback(
     async (text: string) => {
