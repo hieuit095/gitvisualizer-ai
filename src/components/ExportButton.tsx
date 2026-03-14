@@ -129,6 +129,16 @@ interface ExportButtonProps {
 const ExportButton = ({ repoName, analysisResult }: ExportButtonProps) => {
   const [exporting, setExporting] = useState(false);
 
+  const copyMermaid = useCallback(() => {
+    if (!analysisResult) return;
+    const mermaid = generateMermaidChart(analysisResult);
+    navigator.clipboard.writeText(mermaid).then(() => {
+      toast({ title: "Mermaid diagram copied!" });
+    }).catch(() => {
+      toast({ title: "Copy failed", variant: "destructive" });
+    });
+  }, [analysisResult]);
+
   const exportMarkdown = useCallback(() => {
     if (!analysisResult) {
       toast({ title: "No analysis to export", variant: "destructive" });
