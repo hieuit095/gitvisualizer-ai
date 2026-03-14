@@ -31,7 +31,7 @@ const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   },
   together: {
     baseUrl: "https://api.together.xyz/v1",
-    chatModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    chatModel: "MiniMaxAI/MiniMax-M2.5",
     embeddingModel: "intfloat/multilingual-e5-large-instruct",
     supportsEmbeddings: true,
   },
