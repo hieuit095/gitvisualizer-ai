@@ -201,29 +201,235 @@ function filePriority(path: string): number {
   return score;
 }
 
-// ─── File Header Extraction (Layer 2) ──────────────────────────────────
+// ─── Code Skeleton Extractor (AST-like static analysis) ────────────────
 
-function extractFileHeader(content: string, maxLines = 60): string {
+interface SkeletonDeclaration {
+  kind: string;       // "function" | "class" | "interface" | "type" | "enum" | "const" | "variable" | "method" | "property"
+  name: string;
+  signature: string;  // compact one-liner: "function foo(a, b): string"
+  exported: boolean;
+  startLine: number;
+  children?: SkeletonDeclaration[];  // methods inside a class
+}
+
+interface CodeSkeleton {
+  declarations: SkeletonDeclaration[];
+  skeletonText: string;  // human-readable compact skeleton
+}
+
+// Regex patterns for multi-language support
+const DECLARATION_PATTERNS: Array<{ pattern: RegExp; kind: string; nameGroup: number }> = [
+  // TypeScript / JavaScript
+  { pattern: /^(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+([\w.]+))?(?:\s+implements\s+([\w,\s.]+))?/, kind: "class", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?interface\s+(\w+)(?:\s+extends\s+([\w,\s.]+))?/, kind: "interface", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?type\s+(\w+)\s*=/, kind: "type", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?enum\s+(\w+)/, kind: "enum", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*(\w+)\s*\(([^)]*)\)(?:\s*:\s*([^\s{]+))?/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=]+?))?\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*([^\s=>]+))?\s*=>/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=]+?))?\s*=\s*(?:async\s+)?function/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*([^=;]+))?\s*[=;]/, kind: "const", nameGroup: 1 },
+  // Python
+  { pattern: /^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/, kind: "function", nameGroup: 1 },
+  { pattern: /^class\s+(\w+)(?:\(([^)]*)\))?/, kind: "class", nameGroup: 1 },
+  // Go
+  { pattern: /^func\s+(?:\(\s*\w+\s+\*?(\w+)\s*\)\s+)?(\w+)\s*\(([^)]*)\)(?:\s*(?:\(([^)]*)\)|(\S+)))?/, kind: "function", nameGroup: 2 },
+  { pattern: /^type\s+(\w+)\s+struct\s*\{/, kind: "class", nameGroup: 1 },
+  { pattern: /^type\s+(\w+)\s+interface\s*\{/, kind: "interface", nameGroup: 1 },
+  // Rust
+  { pattern: /^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/, kind: "function", nameGroup: 1 },
+  { pattern: /^(?:pub\s+)?struct\s+(\w+)/, kind: "class", nameGroup: 1 },
+  { pattern: /^(?:pub\s+)?trait\s+(\w+)/, kind: "interface", nameGroup: 1 },
+  { pattern: /^(?:pub\s+)?enum\s+(\w+)/, kind: "enum", nameGroup: 1 },
+  { pattern: /^impl\s+(?:(\w+)\s+for\s+)?(\w+)/, kind: "impl", nameGroup: 2 },
+  // Java / Kotlin
+  { pattern: /^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/, kind: "class", nameGroup: 1 },
+];
+
+const METHOD_PATTERNS: RegExp[] = [
+  // TS/JS methods
+  /^\s+(?:public|private|protected|static|async|abstract|readonly|\s)*(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*:\s*([^\s{;]+))?/,
+  // Python methods
+  /^\s+(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/,
+  // Go receiver methods (handled at top level)
+  // Rust impl methods
+  /^\s+(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)(?:\s*->\s*(\S+))?/,
+];
+
+function extractCodeSkeleton(content: string, filePath: string): CodeSkeleton {
   const lines = content.split("\n");
-  const header: string[] = [];
+  const declarations: SkeletonDeclaration[] = [];
+  const skeletonLines: string[] = [];
+
   let braceDepth = 0;
-  for (const line of lines) {
-    if (header.length >= maxLines) break;
+  let currentContainer: SkeletonDeclaration | null = null;
+  let containerStartDepth = 0;
+  let inBlockComment = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
-    const opens = (line.match(/{/g) || []).length;
-    const closes = (line.match(/}/g) || []).length;
-    // Keep line if we're at top level, or it's a declaration/comment/blank
-    if (
-      braceDepth <= 1 ||
-      /^(import|export|interface|type|class|enum|const|let|var|function|async|abstract|public|private|protected|def |fn |func )/.test(trimmed) ||
-      trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*") || trimmed === ""
-    ) {
-      header.push(line);
+
+    // Track block comments
+    if (inBlockComment) {
+      if (trimmed.includes("*/")) inBlockComment = false;
+      continue;
     }
+    if (trimmed.startsWith("/*") && !trimmed.includes("*/")) {
+      inBlockComment = true;
+      continue;
+    }
+
+    // Skip empty lines and single-line comments for parsing (but count braces)
+    const opens = (line.match(/\{/g) || []).length;
+    const closes = (line.match(/\}/g) || []).length;
+
+    if (trimmed === "" || trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("/*")) {
+      braceDepth += opens - closes;
+      if (braceDepth < 0) braceDepth = 0;
+      continue;
+    }
+
+    const isExported = /^export\s/.test(trimmed) || /^pub\s/.test(trimmed);
+
+    // Check if we're inside a class/interface — look for methods
+    if (currentContainer && braceDepth > containerStartDepth) {
+      for (const mp of METHOD_PATTERNS) {
+        const mm = trimmed.match(mp);
+        if (mm) {
+          const methodName = mm[1];
+          const params = mm[2] ? mm[2].replace(/\s+/g, " ").trim() : "";
+          const ret = mm[3] || "";
+          const sig = `  ${methodName}(${params})${ret ? ": " + ret : ""}`;
+          if (!currentContainer.children) currentContainer.children = [];
+          currentContainer.children.push({
+            kind: "method", name: methodName, signature: sig,
+            exported: false, startLine: i + 1,
+          });
+          skeletonLines.push(sig);
+          break;
+        }
+      }
+      braceDepth += opens - closes;
+      if (braceDepth < 0) braceDepth = 0;
+      if (braceDepth <= containerStartDepth) {
+        skeletonLines.push("}");
+        currentContainer = null;
+      }
+      continue;
+    }
+
+    // Top-level declarations
+    if (braceDepth <= 1) {
+      for (const dp of DECLARATION_PATTERNS) {
+        const dm = trimmed.match(dp.pattern);
+        if (dm) {
+          const name = dm[dp.nameGroup] || "anonymous";
+          let signature = "";
+
+          if (dp.kind === "class") {
+            const ext = dm[2] ? ` extends ${dm[2]}` : "";
+            const impl = dm[3] ? ` implements ${dm[3].trim()}` : "";
+            signature = `class ${name}${ext}${impl} {`;
+            const decl: SkeletonDeclaration = {
+              kind: "class", name, signature, exported: isExported, startLine: i + 1, children: [],
+            };
+            declarations.push(decl);
+            currentContainer = decl;
+            containerStartDepth = braceDepth;
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "interface") {
+            const ext = dm[2] ? ` extends ${dm[2].trim()}` : "";
+            signature = `interface ${name}${ext} { ... }`;
+            declarations.push({ kind: "interface", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "function") {
+            const params = (dm[2] || dm[3] || "").replace(/\s+/g, " ").trim();
+            const ret = dm[3] || dm[4] || "";
+            signature = `function ${name}(${params})${ret ? ": " + ret : ""}`;
+            declarations.push({ kind: "function", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "type") {
+            signature = `type ${name} = ...`;
+            declarations.push({ kind: "type", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "enum") {
+            signature = `enum ${name} { ... }`;
+            declarations.push({ kind: "enum", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "const") {
+            const typeAnnotation = dm[2] ? `: ${dm[2].trim()}` : "";
+            signature = `const ${name}${typeAnnotation}`;
+            declarations.push({ kind: "const", name, signature, exported: isExported, startLine: i + 1 });
+            skeletonLines.push(`${isExported ? "export " : ""}${signature}`);
+          } else if (dp.kind === "impl") {
+            const traitName = dm[1];
+            signature = traitName ? `impl ${traitName} for ${name} {` : `impl ${name} {`;
+            const decl: SkeletonDeclaration = {
+              kind: "impl", name, signature, exported: false, startLine: i + 1, children: [],
+            };
+            declarations.push(decl);
+            currentContainer = decl;
+            containerStartDepth = braceDepth;
+            skeletonLines.push(signature);
+          }
+          break;
+        }
+      }
+    }
+
     braceDepth += opens - closes;
     if (braceDepth < 0) braceDepth = 0;
+    if (currentContainer && braceDepth <= containerStartDepth) {
+      skeletonLines.push("}");
+      currentContainer = null;
+    }
   }
-  return header.join("\n");
+
+  return {
+    declarations,
+    skeletonText: skeletonLines.join("\n"),
+  };
+}
+
+// ─── Validation & Retry Logic ──────────────────────────────────────────
+
+interface ValidationError {
+  type: "invalid_path" | "duplicate_id" | "invalid_edge_ref";
+  message: string;
+}
+
+function validateAnalysisResult(
+  parsed: { nodes: any[]; edges: any[] },
+  knownPaths: Set<string>,
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+  const nodeIds = new Set<string>();
+
+  for (const node of parsed.nodes) {
+    if (!knownPaths.has(node.path) && !knownPaths.has(node.path + "/")) {
+      // Allow folder nodes whose path is a prefix of known paths
+      const isFolder = node.type === "folder";
+      const isFolderPrefix = isFolder && [...knownPaths].some(p => p.startsWith(node.path + "/") || p.startsWith(node.path));
+      if (!isFolderPrefix) {
+        errors.push({ type: "invalid_path", message: `Node "${node.id}" references path "${node.path}" not in file list` });
+      }
+    }
+    if (nodeIds.has(node.id)) {
+      errors.push({ type: "duplicate_id", message: `Duplicate node id "${node.id}"` });
+    }
+    nodeIds.add(node.id);
+  }
+
+  for (const edge of parsed.edges) {
+    if (!nodeIds.has(edge.source)) {
+      errors.push({ type: "invalid_edge_ref", message: `Edge "${edge.id}" source "${edge.source}" not found in nodes` });
+    }
+    if (!nodeIds.has(edge.target)) {
+      errors.push({ type: "invalid_edge_ref", message: `Edge "${edge.id}" target "${edge.target}" not found in nodes` });
+    }
+  }
+
+  return errors;
 }
 
 // ─── Pass 1: Import/Export Extraction ──────────────────────────────────
