@@ -65,7 +65,7 @@ function processCitations(children: React.ReactNode): React.ReactNode {
   return children;
 }
 
-const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps) => {
+const RepoChat = ({ analysisResult, askAboutNode, onAskHandled, indexingStatus = "idle" }: RepoChatProps) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
