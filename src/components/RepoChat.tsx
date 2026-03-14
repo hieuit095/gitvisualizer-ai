@@ -248,7 +248,21 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps)
                     >
                       {msg.role === "assistant" ? (
                         <div className="prose prose-sm prose-invert max-w-none [&_code]:rounded [&_code]:bg-background/50 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-lg [&_pre]:bg-background/50 [&_pre]:p-2 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          <ReactMarkdown
+                            components={{
+                              // Render citation patterns [file:L##-L##] as badges
+                              p: ({ children, ...props }) => {
+                                const processed = processCitations(children);
+                                return <p {...props}>{processed}</p>;
+                              },
+                              li: ({ children, ...props }) => {
+                                const processed = processCitations(children);
+                                return <li {...props}>{processed}</li>;
+                              },
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                       ) : (
                         msg.content
