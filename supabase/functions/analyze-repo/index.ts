@@ -458,6 +458,8 @@ serve(async (req) => {
           const shallowSummary = shallowMap
             .map(f => {
               let line = `- ${f.path} [${f.type}]`;
+              if (f.lineCount) line += ` (${f.lineCount} lines)`;
+              if (f.exportCount) line += ` ${f.exportCount} exports`;
               if (f.exports.length) line += ` exports: ${f.exports.slice(0, 8).join(", ")}`;
               if (f.imports.length) line += ` imports: ${f.imports.slice(0, 8).join(", ")}`;
               if (f.signatures.length) line += ` fns: ${f.signatures.slice(0, 6).join(", ")}`;
@@ -466,8 +468,8 @@ serve(async (req) => {
             .join("\n");
 
           const contentSection = Object.entries(fileContents)
-            .slice(0, 15)
-            .map(([path, content]) => `### ${path}\n\`\`\`\n${content.slice(0, 1500)}\n\`\`\``)
+            .slice(0, 25)
+            .map(([path, content]) => `### ${path}\n\`\`\`\n${content}\n\`\`\``)
             .join("\n\n");
 
           const folders = new Set<string>();
@@ -490,21 +492,23 @@ ${shallowSummary}
 ## Key Directories
 ${[...folders].slice(0, 40).join("\n")}
 
-## File Contents (key files)
+## File Headers (declarations & imports only)
 ${contentSection}
 
 ## Instructions
+You are given only file headers (imports, exports, type/class/function declarations). Do NOT attempt to describe implementation details — only architectural role and relationships.
+
 Generate the architecture using the tool provided. Create:
 1. **nodes**: The ~20-35 most architecturally significant files AND key directories. Each node needs:
    - id, name, type (folder/component/utility/hook/config/entry/style/test/database/api/model/other)
-   - summary: 1-sentence HIGH-LEVEL description (keep brief — detailed summaries load on-demand)
+   - summary: 1-sentence architectural role description (keep brief — detailed summaries load on-demand)
    - keyFunctions: top 3-5 function/export names
    - path: full file path
    Note: Do NOT include tutorial or codeSnippet — those are loaded lazily on user request.
 
 2. **edges**: Dependencies between nodes (id, source, target, type, label)
 
-Focus on architecture structure. Keep summaries concise.`;
+Focus on architecture structure and relationships. Keep summaries to 1 sentence describing the module's role.`;
 
           const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
             method: "POST",
