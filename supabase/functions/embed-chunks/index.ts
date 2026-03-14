@@ -219,19 +219,11 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const db = createClient(supabaseUrl, supabaseKey);
 
-    // Check if chunks already exist for this repo (skip if recent)
-    const { data: existing } = await db
-      .from("code_chunks")
-      .select("id")
-      .eq("repo_url", repoUrl)
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      // Delete old chunks before re-indexing
-      await db.from("code_chunks").delete().eq("repo_url", repoUrl);
-    }
+    // Delete old chunks before re-indexing
+    await db.from("code_chunks").delete().eq("repo_url", repoUrl);
 
     // Fetch repo tree
     const treeRes = await fetch(
@@ -248,7 +240,6 @@ serve(async (req) => {
       (f: any) => f.type === "blob" && !shouldSkip(f.path) && isSourceFile(f.path)
     );
 
-    // Sort by priority, take top 40
     const sorted = allFiles.sort((a: any, b: any) => filePriority(b.path) - filePriority(a.path));
     const targets = sorted.slice(0, 40);
 
@@ -262,50 +253,146 @@ serve(async (req) => {
           `https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`,
           { headers: ghHeaders }
         );
-        if (!res.ok) {
-          await res.text();
-          continue;
-        }
+        if (!res.ok) { await res.text(); continue; }
         const data = await res.json();
         if (!data.content) continue;
 
         let content = decodeBase64Utf8(data.content);
-        // Limit very large files
-        if (content.length > 15000) {
-          content = content.slice(0, 15000);
-        }
+        if (content.length > 15000) content = content.slice(0, 15000);
 
         const chunks = chunkFile(content, file.path);
         allChunks.push(...chunks);
         fetched++;
 
-        // Rate limit protection
-        if (fetched % 10 === 0) {
-          await new Promise((r) => setTimeout(r, 500));
+        if (fetched % 10 === 0) await new Promise((r) => setTimeout(r, 500));
+      } catch { /* skip */ }
+    }
+
+    // ─── Try to generate embeddings via AI gateway ─────────────
+    let embeddingsAvailable = false;
+    const embeddingMap = new Map<number, number[]>();
+
+    if (LOVABLE_API_KEY && allChunks.length > 0) {
+      try {
+        // Batch embeddings: 20 chunks per request
+        const EMBED_BATCH = 20;
+        for (let i = 0; i < allChunks.length; i += EMBED_BATCH) {
+          const batch = allChunks.slice(i, i + EMBED_BATCH);
+          const inputs = batch.map(
+            (c) => `${c.chunkType}: ${c.chunkName} in ${c.filePath}\n${c.content.slice(0, 500)}`
+          );
+
+          const embRes = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "openai/text-embedding-3-small",
+              input: inputs,
+              dimensions: 768,
+            }),
+          });
+
+          if (embRes.ok) {
+            const embData = await embRes.json();
+            if (embData.data && Array.isArray(embData.data)) {
+              embeddingsAvailable = true;
+              for (const item of embData.data) {
+                embeddingMap.set(i + item.index, item.embedding);
+              }
+            }
+          } else {
+            // Embeddings not supported — break and fall back to tsvector
+            console.log("Embeddings endpoint not available, using text search fallback");
+            break;
+          }
+
+          // Small delay between batches
+          if (i + EMBED_BATCH < allChunks.length) {
+            await new Promise((r) => setTimeout(r, 300));
+          }
         }
-      } catch {
-        // Skip file on error
+      } catch (e) {
+        console.error("Embedding generation error:", e);
+        // Fall back to text search only
       }
     }
 
-    // Insert chunks in batches of 50
-    const batchSize = 50;
-    for (let i = 0; i < allChunks.length; i += batchSize) {
-      const batch = allChunks.slice(i, i + batchSize).map((c) => ({
-        repo_url: repoUrl,
-        file_path: c.filePath,
-        chunk_index: c.chunkIndex,
-        chunk_type: c.chunkType,
-        chunk_name: c.chunkName,
-        content: c.content,
-        start_line: c.startLine,
-        end_line: c.endLine,
-      }));
+    // ─── If no embeddings, generate AI summaries for better text search ───
+    let summaryMap = new Map<number, string>();
+    if (!embeddingsAvailable && LOVABLE_API_KEY && allChunks.length > 0) {
+      try {
+        // Batch summarize chunks using chat model
+        const SUMMARY_BATCH = 30;
+        for (let i = 0; i < Math.min(allChunks.length, 90); i += SUMMARY_BATCH) {
+          const batch = allChunks.slice(i, i + SUMMARY_BATCH);
+          const chunkList = batch
+            .map((c, j) => `[${i + j}] ${c.filePath} (${c.chunkType}: ${c.chunkName}): ${c.content.slice(0, 200)}`)
+            .join("\n");
+
+          const sumRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash-lite",
+              messages: [
+                {
+                  role: "system",
+                  content: "Generate a brief 5-10 word searchable description for each code chunk. Return one line per chunk in format: [index] description",
+                },
+                { role: "user", content: chunkList },
+              ],
+            }),
+          });
+
+          if (sumRes.ok) {
+            const sumData = await sumRes.json();
+            const text = sumData.choices?.[0]?.message?.content || "";
+            for (const line of text.split("\n")) {
+              const match = line.match(/\[(\d+)\]\s*(.+)/);
+              if (match) {
+                summaryMap.set(parseInt(match[1]), match[2].trim());
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Summary generation error:", e);
+      }
+    }
+
+    // ─── Insert chunks with embeddings/summaries ───────────────
+    const insertBatchSize = 50;
+    for (let i = 0; i < allChunks.length; i += insertBatchSize) {
+      const batch = allChunks.slice(i, i + insertBatchSize).map((c, j) => {
+        const globalIdx = i + j;
+        const row: Record<string, any> = {
+          repo_url: repoUrl,
+          file_path: c.filePath,
+          chunk_index: c.chunkIndex,
+          chunk_type: c.chunkType,
+          chunk_name: c.chunkName,
+          content: c.content,
+          start_line: c.startLine,
+          end_line: c.endLine,
+        };
+
+        const embedding = embeddingMap.get(globalIdx);
+        if (embedding) row.embedding = JSON.stringify(embedding);
+
+        const summary = summaryMap.get(globalIdx);
+        if (summary) row.summary = summary;
+
+        return row;
+      });
 
       const { error } = await db.from("code_chunks").insert(batch);
-      if (error) {
-        console.error("Chunk insert error:", error);
-      }
+      if (error) console.error("Chunk insert error:", error);
     }
 
     return new Response(
@@ -313,6 +400,8 @@ serve(async (req) => {
         success: true,
         filesProcessed: fetched,
         chunksStored: allChunks.length,
+        embeddingsGenerated: embeddingsAvailable,
+        embeddingCount: embeddingMap.size,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

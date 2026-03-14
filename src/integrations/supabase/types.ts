@@ -111,6 +111,7 @@ export type Database = {
           repo_url: string
           search_vector: unknown
           start_line: number
+          summary: string | null
         }
         Insert: {
           chunk_index?: number
@@ -125,6 +126,7 @@ export type Database = {
           repo_url: string
           search_vector?: unknown
           start_line?: number
+          summary?: string | null
         }
         Update: {
           chunk_index?: number
@@ -139,6 +141,7 @@ export type Database = {
           repo_url?: string
           search_vector?: unknown
           start_line?: number
+          summary?: string | null
         }
         Relationships: []
       }
@@ -161,6 +164,24 @@ export type Database = {
           file_path: string
           id: string
           rank: number
+          start_line: number
+        }[]
+      }
+      match_code_chunks_vector: {
+        Args: {
+          match_count?: number
+          match_repo_url: string
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          chunk_name: string
+          chunk_type: string
+          content: string
+          end_line: number
+          file_path: string
+          id: string
+          similarity: number
           start_line: number
         }[]
       }
