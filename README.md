@@ -51,7 +51,7 @@ Ensure you have the following installed and configured:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/gitvisualizer-ai.git
+git clone https://github.com/hieuit095/gitvisualizer-ai.git
 cd gitvisualizer-ai
 ```
 
