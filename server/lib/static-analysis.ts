@@ -99,6 +99,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, LanguageConfig> = {
 };
 
 const PARSER_CACHE = new Map<SupportedLanguageKey, Parser>();
+const MAX_TREE_SITTER_INPUT_BYTES = 32_767;
 const BODY_FIELD_NAMES = [
   "body",
   "declaration_list",
@@ -145,6 +146,10 @@ export function analyzeSourceFile(content: string, filePath: string): FileStatic
   const config = LANGUAGE_BY_EXTENSION[extname(filePath).toLowerCase()];
   if (!config) {
     return analyzeWithFallback(content);
+  }
+
+  if (Buffer.byteLength(content, "utf8") > MAX_TREE_SITTER_INPUT_BYTES) {
+    return analyzeWithFallback(content, config.parserName);
   }
 
   try {
