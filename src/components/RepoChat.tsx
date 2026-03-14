@@ -19,9 +19,11 @@ const SUGGESTED_QUESTIONS = [
 
 interface RepoChatProps {
   analysisResult: AnalysisResult | null;
+  askAboutNode?: string | null;
+  onAskHandled?: () => void;
 }
 
-const RepoChat = ({ analysisResult }: RepoChatProps) => {
+const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
