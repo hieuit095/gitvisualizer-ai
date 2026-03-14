@@ -118,3 +118,20 @@
 .glow-violet {
   box-shadow: 0 0 20px rgba(139, 92, 246, 0.3), 0 0 60px rgba(139, 92, 246, 0.1);
 }
+
+/* Mobile responsive overrides */
+@media (max-width: 640px) {
+  .react-flow__minimap {
+    display: none !important;
+  }
+
+  .react-flow__controls {
+    bottom: 4rem !important;
+    left: 0.5rem !important;
+  }
+
+  .react-flow__controls button {
+    width: 28px !important;
+    height: 28px !important;
+  }
+}
