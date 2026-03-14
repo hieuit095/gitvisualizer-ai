@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { chatCompletion, createEmbeddings } from "./lib/ai-client";
-import { query } from "./lib/db";
+import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client";
+import { searchChunks, vectorSearchChunks } from "./lib/store";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -18,36 +18,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let chunksRetrieved = 0;
 
     if (repoContext.repoUrl && userQuery) {
-      // Try vector search
-      try {
-        const embResult = await createEmbeddings([userQuery]);
-        const queryEmbedding = embResult.data?.[0]?.embedding;
-        if (queryEmbedding) {
-          const chunks = await query(
-            `SELECT * FROM match_code_chunks_vector($1::vector, $2, 0.25, 15)`,
-            [JSON.stringify(queryEmbedding), repoContext.repoUrl]
-          );
-          if (chunks.length > 0) {
-            searchMethod = "vector"; chunksRetrieved = chunks.length;
-            ragContext = "\n\n## Retrieved Code Chunks (semantic vector search)\n" +
-              chunks.map((c: any) => `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name}) — similarity: ${(c.similarity * 100).toFixed(0)}%\n\`\`\`\n${c.content}\n\`\`\``).join("\n\n");
+      // Try vector search if embeddings are available
+      if (supportsEmbeddings()) {
+        try {
+          const embResult = await createEmbeddings([userQuery]);
+          const queryEmbedding = embResult.data?.[0]?.embedding;
+          if (queryEmbedding) {
+            const chunks = vectorSearchChunks(repoContext.repoUrl, queryEmbedding, 0.25, 15);
+            if (chunks.length > 0) {
+              searchMethod = "vector";
+              chunksRetrieved = chunks.length;
+              ragContext = "\n\n## Retrieved Code Chunks (semantic search)\n" +
+                chunks.map(c => `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name}) — similarity: ${(c.similarity * 100).toFixed(0)}%\n\`\`\`\n${c.content}\n\`\`\``).join("\n\n");
+            }
           }
-        }
-      } catch (e) { console.log("Vector search unavailable:", e); }
+        } catch (e) { console.log("Vector search unavailable:", e); }
+      }
 
       // Fallback to text search
       if (!ragContext) {
-        try {
-          const chunks = await query(
-            `SELECT * FROM match_code_chunks($1, $2, 15)`,
-            [userQuery, repoContext.repoUrl]
-          );
-          if (chunks.length > 0) {
-            searchMethod = "text"; chunksRetrieved = chunks.length;
-            ragContext = "\n\n## Retrieved Code Chunks (text search)\n" +
-              chunks.map((c: any) => `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name})\n\`\`\`\n${c.content}\n\`\`\``).join("\n\n");
-          }
-        } catch (e) { console.error("Text search error:", e); }
+        const chunks = searchChunks(repoContext.repoUrl, userQuery, 15);
+        if (chunks.length > 0) {
+          searchMethod = "text";
+          chunksRetrieved = chunks.length;
+          ragContext = "\n\n## Retrieved Code Chunks (text search)\n" +
+            chunks.map(c => `### [${c.file_path}:L${c.start_line}-L${c.end_line}] (${c.chunk_type}: ${c.chunk_name})\n\`\`\`\n${c.content}\n\`\`\``).join("\n\n");
+        }
       }
     }
 
@@ -81,16 +77,10 @@ ${ragContext}
     }
 
     res.setHeader("Content-Type", "text/event-stream");
-
-    // Send search metadata
     res.write(`data: ${JSON.stringify({ searchMeta: { method: searchMethod, chunks: chunksRetrieved } })}\n\n`);
 
-    // Pipe AI stream
     if (aiRes.body) {
-      const reader = (aiRes.body as any).getReader
-        ? (aiRes.body as any).getReader()
-        : null;
-
+      const reader = (aiRes.body as any).getReader ? (aiRes.body as any).getReader() : null;
       if (reader) {
         const decoder = new TextDecoder();
         while (true) {
@@ -99,10 +89,7 @@ ${ragContext}
           res.write(decoder.decode(value, { stream: true }));
         }
       } else {
-        // Node.js readable stream
-        for await (const chunk of aiRes.body as any) {
-          res.write(chunk);
-        }
+        for await (const chunk of aiRes.body as any) { res.write(chunk); }
       }
     }
 

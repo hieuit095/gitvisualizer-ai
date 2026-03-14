@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { chatCompletion, createEmbeddings } from "./lib/ai-client";
-import { query } from "./lib/db";
+import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client";
+import { deleteChunksForRepo, storeChunk, flushChunksToDisk } from "./lib/store";
 
 function decodeBase64Utf8(base64: string): string {
   return Buffer.from(base64.replace(/\n/g, ""), "base64").toString("utf-8");
@@ -60,7 +60,6 @@ function chunkFile(content: string, filePath: string): CodeChunk[] {
   }
   flush();
 
-  // Merge small chunks
   const merged: CodeChunk[] = [];
   for (const chunk of chunks) {
     if (merged.length > 0 && chunk.content.split("\n").length < 5 && merged[merged.length - 1].content.split("\n").length < 60) {
@@ -73,6 +72,7 @@ function chunkFile(content: string, filePath: string): CodeChunk[] {
 const BLOCKED_DIRS = new Set(["node_modules", "venv", ".venv", "env", ".git", "dist", "build", "out", "target", ".next", ".nuxt", "vendor", "coverage", "__pycache__", ".cache"]);
 const BLOCKED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".mp4", ".mp3", ".wav", ".pdf", ".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".woff", ".woff2", ".ttf", ".map", ".min.js", ".min.css"]);
 const LOCK_FILES = new Set(["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "bun.lockb", "bun.lock"]);
+const SOURCE_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt", "rb", "php", "css", "scss", "html", "vue", "svelte", "sql", "graphql", "proto", "sh"]);
 
 function shouldSkip(path: string): boolean {
   const segments = path.split("/");
@@ -83,8 +83,6 @@ function shouldSkip(path: string): boolean {
   if (dotIdx !== -1 && BLOCKED_EXTENSIONS.has(filename.slice(dotIdx).toLowerCase())) return true;
   return false;
 }
-
-const SOURCE_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt", "rb", "php", "css", "scss", "html", "vue", "svelte", "sql", "graphql", "proto", "sh"]);
 
 function isSourceFile(path: string): boolean {
   const name = path.split("/").pop() || "";
@@ -115,8 +113,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { owner, repo } = extractOwnerRepo(repoUrl);
     const ghHeaders = getGitHubHeaders(githubToken);
 
-    // Delete old chunks
-    await query(`DELETE FROM code_chunks WHERE repo_url = $1`, [repoUrl]);
+    // Clear old chunks for this repo
+    deleteChunksForRepo(repoUrl);
 
     // Fetch tree
     const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`, { headers: ghHeaders });
@@ -141,11 +139,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch { }
     }
 
-    // Generate embeddings
+    // Generate embeddings if supported
     let embeddingsAvailable = false;
     const embeddingMap = new Map<number, number[]>();
 
-    if (allChunks.length > 0) {
+    if (allChunks.length > 0 && supportsEmbeddings()) {
       try {
         const BATCH = 20;
         for (let i = 0; i < allChunks.length; i += BATCH) {
@@ -161,7 +159,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch (e) { console.error("Embedding error:", e); }
     }
 
-    // Generate summaries if no embeddings
+    // Generate text summaries if no embeddings
     const summaryMap = new Map<number, string>();
     if (!embeddingsAvailable && allChunks.length > 0) {
       try {
@@ -185,38 +183,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch { }
     }
 
-    // Insert chunks
-    const IBATCH = 50;
-    for (let i = 0; i < allChunks.length; i += IBATCH) {
-      const batch = allChunks.slice(i, i + IBATCH);
-      const values: string[] = [];
-      const params: any[] = [];
-      batch.forEach((c, j) => {
-        const gi = i + j;
-        const offset = gi * 9;
-        const embedding = embeddingMap.get(gi);
-        const summary = summaryMap.get(gi);
-        values.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}::vector)`);
-        params.push(repoUrl, c.filePath, c.chunkIndex, c.chunkType, c.chunkName, c.content, c.startLine, c.endLine,
-          embedding ? JSON.stringify(embedding) : null
-        );
-        // We'll handle summary separately or add as 10th param
+    // Store chunks in memory
+    for (let i = 0; i < allChunks.length; i++) {
+      const c = allChunks[i];
+      storeChunk({
+        repo_url: repoUrl,
+        file_path: c.filePath,
+        chunk_index: c.chunkIndex,
+        chunk_type: c.chunkType,
+        chunk_name: c.chunkName,
+        content: c.content,
+        start_line: c.startLine,
+        end_line: c.endLine,
+        embedding: embeddingMap.get(i),
+        summary: summaryMap.get(i),
       });
-      // Simplified: use individual inserts with summary
-      for (let j = 0; j < batch.length; j++) {
-        const c = batch[j]; const gi = i + j;
-        const embedding = embeddingMap.get(gi);
-        const summary = summaryMap.get(gi);
-        await query(
-          `INSERT INTO code_chunks (repo_url, file_path, chunk_index, chunk_type, chunk_name, content, start_line, end_line, embedding, summary)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10)`,
-          [repoUrl, c.filePath, c.chunkIndex, c.chunkType, c.chunkName, c.content, c.startLine, c.endLine,
-            embedding ? JSON.stringify(embedding) : null, summary || null]
-        );
-      }
     }
+    flushChunksToDisk();
 
-    res.json({ success: true, filesProcessed: fetched, chunksStored: allChunks.length, embeddingsGenerated: embeddingsAvailable, embeddingCount: embeddingMap.size });
+    res.json({
+      success: true,
+      filesProcessed: fetched,
+      chunksStored: allChunks.length,
+      embeddingsGenerated: embeddingsAvailable,
+      embeddingCount: embeddingMap.size,
+    });
   } catch (e: any) {
     console.error("embed-chunks error:", e);
     res.status(500).json({ error: e.message || "Unknown error" });
