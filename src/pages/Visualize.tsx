@@ -1,36 +1,52 @@
-import { useCallback, useState, useMemo } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { Suspense, lazy, useCallback, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  ReactFlow,
-  ReactFlowProvider,
-  MiniMap,
-  Controls,
   Background,
   BackgroundVariant,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  ReactFlowProvider,
   type Node,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle, Lock } from "lucide-react";
-import Legend from "@/components/Legend";
-import ExportButton from "@/components/ExportButton";
-import ShareButton from "@/components/ShareButton";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowDownUp,
+  ArrowLeft,
+  ArrowRightLeft,
+  GitBranch,
+  Lock,
+  RotateCcw,
+} from "lucide-react";
 import AnalysisHistory from "@/components/AnalysisHistory";
+import AnalysisProgress from "@/components/AnalysisProgress";
+import ExportButton from "@/components/ExportButton";
+import GitHubTokenDialog from "@/components/GitHubTokenDialog";
+import Legend from "@/components/Legend";
 import NodeSearch from "@/components/NodeSearch";
-import { Button } from "@/components/ui/button";
-import FileNode from "@/components/nodes/FileNode";
+import ShareButton from "@/components/ShareButton";
+import TooltipEdge from "@/components/edges/TooltipEdge";
 import FolderNode from "@/components/nodes/FolderNode";
 import GroupNode from "@/components/nodes/GroupNode";
-import TooltipEdge from "@/components/edges/TooltipEdge";
-import InfoPanel from "@/components/InfoPanel";
-import AnalysisProgress from "@/components/AnalysisProgress";
-import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
-import RepoChat from "@/components/RepoChat";
-import { useRepoAnalysis } from "@/hooks/useRepoAnalysis";
+import FileNode from "@/components/nodes/FileNode";
+import { Button } from "@/components/ui/button";
 import { useGraphLayout } from "@/hooks/useGraphLayout";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
-import type { RepoNode, NodeDetail, AnalysisResult } from "@/types/repo";
+import { useRepoAnalysis } from "@/hooks/useRepoAnalysis";
+import { getStoredToken } from "@/lib/githubToken";
+import type { AnalysisResult, NodeDetail, RepoNode } from "@/types/repo";
 
-const nodeTypes = { fileNode: FileNode, folderNode: FolderNode, groupNode: GroupNode };
+const InfoPanel = lazy(() => import("@/components/InfoPanel"));
+const RepoChat = lazy(() => import("@/components/RepoChat"));
+
+const nodeTypes = {
+  fileNode: FileNode,
+  folderNode: FolderNode,
+  groupNode: GroupNode,
+};
+
 const edgeTypes = { tooltipEdge: TooltipEdge };
 
 const VisualizeInner = () => {
@@ -65,11 +81,11 @@ const VisualizeInner = () => {
   const [askAboutNode, setAskAboutNode] = useState<string | null>(null);
 
   const onNodeClick = useCallback((_: unknown, node: Node) => {
-    setSelectedNode(node.data as unknown as RepoNode);
+    setSelectedNode(node.data as RepoNode);
   }, []);
 
   const handleKeySelectNode = useCallback((node: Node) => {
-    setSelectedNode(node.data as unknown as RepoNode);
+    setSelectedNode(node.data as RepoNode);
   }, []);
 
   useKeyboardNavigation({
@@ -82,24 +98,30 @@ const VisualizeInner = () => {
   const onNodeDetailLoadedWrapper = useCallback(
     (nodeId: string, detail: NodeDetail) => {
       handleNodeDetailLoaded(nodeId, detail);
-      setSelectedNode((prev) => {
-        if (!prev || prev.id !== nodeId) return prev;
-        return { ...prev, ...detail, detailLoaded: true };
+      setSelectedNode((previous) => {
+        if (!previous || previous.id !== nodeId) return previous;
+        return { ...previous, ...detail, detailLoaded: true };
       });
     },
-    [handleNodeDetailLoaded]
+    [handleNodeDetailLoaded],
   );
 
-  const handleLoadVersion = useCallback((result: AnalysisResult) => {
-    setAnalysisResult(result);
-  }, [setAnalysisResult]);
+  const handleLoadVersion = useCallback(
+    (result: AnalysisResult) => {
+      setAnalysisResult(result);
+    },
+    [setAnalysisResult],
+  );
 
-  const cacheId = useMemo(() => {
-    return analysisResult ? (analysisResult as any)._cacheId : undefined;
-  }, [analysisResult]);
+  const cacheId = analysisResult?._cacheId;
 
   if (loading) {
-    return <AnalysisProgress currentStep={progressStep} progressEvents={progressEvents} />;
+    return (
+      <AnalysisProgress
+        currentStep={progressStep}
+        progressEvents={progressEvents}
+      />
+    );
   }
 
   if (error) {
@@ -110,8 +132,12 @@ const VisualizeInner = () => {
           <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-destructive/30 bg-destructive/10">
             <AlertTriangle className="h-8 w-8 text-destructive" />
           </div>
-          <h2 className="mb-2 font-mono text-xl font-bold text-foreground">Analysis Failed</h2>
-          <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{error}</p>
+          <h2 className="mb-2 font-mono text-xl font-bold text-foreground">
+            Analysis Failed
+          </h2>
+          <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
+            {error}
+          </p>
           {(error.includes("private") || error.includes("Access denied")) && (
             <div className="mb-6">
               <GitHubTokenDialog
@@ -125,11 +151,18 @@ const VisualizeInner = () => {
             </div>
           )}
           <div className="flex items-center justify-center gap-3">
-            <Button variant="outline" onClick={() => navigate("/")} className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/")}
+              className="gap-2"
+            >
               <ArrowLeft className="h-4 w-4" />
               Go Back
             </Button>
-            <Button onClick={() => runAnalysis(true)} className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button
+              onClick={() => runAnalysis(true)}
+              className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+            >
               <RotateCcw className="h-4 w-4" />
               Retry
             </Button>
@@ -141,18 +174,24 @@ const VisualizeInner = () => {
 
   return (
     <div className="relative h-screen w-screen bg-background">
-      {/* Top bar — responsive */}
       <div
         className="absolute left-0 top-0 z-40 flex items-center gap-2 border-b border-border/50 bg-card/80 px-2 py-2 backdrop-blur-sm sm:gap-3 sm:px-4 sm:py-2.5"
         style={{ width: selectedNode ? "calc(100% - 384px)" : "100%" }}
       >
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="h-8 w-8 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate("/")}
+          className="h-8 w-8 shrink-0"
+        >
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <GitBranch className="hidden h-4 w-4 text-primary sm:block" />
-        <span className="truncate font-mono text-xs font-semibold text-foreground sm:text-sm">{repoName}</span>
+        <span className="truncate font-mono text-xs font-semibold text-foreground sm:text-sm">
+          {repoName}
+        </span>
         <span className="hidden text-xs text-muted-foreground sm:inline">
-          {nodes.length} nodes · {edges.length} edges
+          {nodes.length} nodes / {edges.length} edges
         </span>
 
         {repoMeta.wasTruncated && (
@@ -172,7 +211,13 @@ const VisualizeInner = () => {
             currentResult={analysisResult}
             onLoadVersion={handleLoadVersion}
           />
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runAnalysis(true)} title="Re-analyze repository">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => runAnalysis(true)}
+            title="Re-analyze repository"
+          >
             <RotateCcw className="h-4 w-4" />
           </Button>
           <Button
@@ -182,7 +227,11 @@ const VisualizeInner = () => {
             onClick={toggleDirection}
             title={direction === "TB" ? "Switch to horizontal" : "Switch to vertical"}
           >
-            {direction === "TB" ? <ArrowRightLeft className="h-4 w-4" /> : <ArrowDownUp className="h-4 w-4" />}
+            {direction === "TB" ? (
+              <ArrowRightLeft className="h-4 w-4" />
+            ) : (
+              <ArrowDownUp className="h-4 w-4" />
+            )}
           </Button>
           <ShareButton repoUrl={repoUrl} cacheId={cacheId} />
           <ExportButton repoName={repoName} analysisResult={analysisResult} />
@@ -203,17 +252,25 @@ const VisualizeInner = () => {
         minZoom={0.1}
         maxZoom={3}
         proOptions={{ hideAttribution: true }}
-        /* Touch/gesture support */
         panOnDrag
         zoomOnPinch
         zoomOnScroll
         panOnScroll={false}
         preventScrolling
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} className="!bg-background [&>pattern>circle]:fill-muted" />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={20}
+          size={1}
+          className="!bg-background [&>pattern>circle]:fill-muted"
+        />
         <Controls className="!bottom-16 sm:!bottom-4" />
         <MiniMap
-          nodeColor={(n) => (n.type === "folderNode" || n.type === "groupNode" ? "var(--color-secondary)" : "var(--color-primary)")}
+          nodeColor={(node) =>
+            node.type === "folderNode" || node.type === "groupNode"
+              ? "var(--color-secondary)"
+              : "var(--color-primary)"
+          }
           maskColor="rgba(0, 0, 0, 0.7)"
           pannable
           zoomable
@@ -222,19 +279,27 @@ const VisualizeInner = () => {
       </ReactFlow>
 
       <Legend />
-      <InfoPanel
-        node={selectedNode}
-        repoUrl={repoUrl}
-        onClose={() => setSelectedNode(null)}
-        onNodeDetailLoaded={onNodeDetailLoadedWrapper}
-        onAskChat={(question) => setAskAboutNode(question)}
-      />
-      <RepoChat
-        analysisResult={analysisResult}
-        askAboutNode={askAboutNode}
-        onAskHandled={() => setAskAboutNode(null)}
-        indexingStatus={indexingStatus}
-      />
+      {selectedNode && (
+        <Suspense fallback={null}>
+          <InfoPanel
+            node={selectedNode}
+            repoUrl={repoUrl}
+            onClose={() => setSelectedNode(null)}
+            onNodeDetailLoaded={onNodeDetailLoadedWrapper}
+            onAskChat={(question) => setAskAboutNode(question)}
+          />
+        </Suspense>
+      )}
+      {analysisResult && (
+        <Suspense fallback={null}>
+          <RepoChat
+            analysisResult={analysisResult}
+            askAboutNode={askAboutNode}
+            onAskHandled={() => setAskAboutNode(null)}
+            indexingStatus={indexingStatus}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

@@ -1,13 +1,24 @@
 export interface RepoNode {
   id: string;
   name: string;
-  type: "folder" | "component" | "utility" | "hook" | "config" | "entry" | "style" | "test" | "database" | "api" | "model" | "other";
+  type:
+    | "folder"
+    | "component"
+    | "utility"
+    | "hook"
+    | "config"
+    | "entry"
+    | "style"
+    | "test"
+    | "database"
+    | "api"
+    | "model"
+    | "other";
   summary: string;
   keyFunctions?: string[];
   tutorial?: string;
   codeSnippet?: string;
   path: string;
-  /** Whether detailed AI analysis has been loaded for this node */
   detailLoaded?: boolean;
 }
 
@@ -38,6 +49,8 @@ export interface AnalysisResult {
   wasTruncated?: boolean;
   filteredFiles?: number;
   filteredOut?: number;
+  cached?: boolean;
+  _cacheId?: string;
   nodes: RepoNode[];
   edges: RepoEdge[];
 }

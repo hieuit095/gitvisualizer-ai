@@ -1,77 +1,16 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { chatCompletion } from "./lib/ai-client.js";
 import { getCachedAnalysis, storeAnalysis, addHistory } from "./lib/store.js";
+import {
+  decodeBase64Utf8,
+  extractOwnerRepo,
+  getGitHubHeaders,
+  isBlockedRepoPath as isBlockedByEngine,
+  isLikelySourceFile as isSourceFile,
+  repoFilePriority as filePriority,
+} from "./lib/github.js";
 
 // ─── Smart Ignore Engine (same as Supabase version) ───────────────────
-
-const BLOCKED_DIRS = new Set([
-  "node_modules", "venv", ".venv", "env", ".git", "dist", "build", "out",
-  "target", ".next", ".nuxt", "vendor", "coverage", "__pycache__", ".cache",
-  ".idea", ".vscode", ".gradle", "bower_components", ".terraform", ".serverless",
-  "eggs", ".eggs", ".tox", ".mypy_cache", ".pytest_cache",
-]);
-
-const BLOCKED_EXTENSIONS = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico",
-  ".mp4", ".mp3", ".wav", ".avi", ".mov", ".wmv",
-  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt",
-  ".zip", ".tar", ".gz", ".rar", ".7z", ".bz2",
-  ".exe", ".dll", ".so", ".dylib", ".bin", ".dat",
-  ".woff", ".woff2", ".ttf", ".eot", ".otf",
-  ".map", ".min.js", ".min.css",
-]);
-
-const LOCK_FILES = new Set([
-  "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
-  "Pipfile.lock", "composer.lock", "Gemfile.lock", "Cargo.lock",
-  "bun.lockb", "bun.lock", "shrinkwrap.json",
-]);
-
-const ALLOWED_HIDDEN_FILES = new Set([
-  ".gitignore", ".env.example", ".editorconfig", ".eslintrc",
-  ".eslintrc.js", ".eslintrc.json", ".prettierrc", ".prettierrc.json",
-]);
-
-function isBlockedByEngine(path: string, size?: number): boolean {
-  const segments = path.split("/");
-  for (const seg of segments.slice(0, -1)) {
-    if (BLOCKED_DIRS.has(seg)) return true;
-    if (seg.startsWith(".") && seg.length > 1 && seg !== ".github") return true;
-  }
-  const filename = segments[segments.length - 1];
-  if (LOCK_FILES.has(filename)) return true;
-  const dotIdx = filename.lastIndexOf(".");
-  if (dotIdx !== -1) {
-    const ext = filename.slice(dotIdx).toLowerCase();
-    if (BLOCKED_EXTENSIONS.has(ext)) return true;
-    const prevDot = filename.lastIndexOf(".", dotIdx - 1);
-    if (prevDot !== -1) {
-      const doubleExt = filename.slice(prevDot).toLowerCase();
-      if (BLOCKED_EXTENSIONS.has(doubleExt)) return true;
-    }
-  }
-  if (size !== undefined && size > 100 * 1024) return true;
-  if (filename.startsWith(".") && !ALLOWED_HIDDEN_FILES.has(filename)) return true;
-  return false;
-}
-
-const SOURCE_EXTENSIONS = new Set([
-  "ts", "tsx", "js", "jsx", "mjs", "cjs",
-  "py", "go", "rs", "java", "kt", "scala", "rb", "php",
-  "json", "yaml", "yml", "toml", "xml",
-  "css", "scss", "less", "html", "vue", "svelte",
-  "sql", "graphql", "gql", "proto",
-  "sh", "bash", "zsh", "ps1",
-  "md", "mdx", "txt", "env",
-  "c", "cpp", "h", "hpp", "cs", "swift", "dart", "lua", "ex", "exs", "erl", "hs",
-]);
-
-function isSourceFile(path: string): boolean {
-  const name = path.split("/").pop() || "";
-  if (["Makefile", "Dockerfile", "Procfile", "Rakefile", "Gemfile", "Pipfile"].includes(name)) return true;
-  const ext = name.split(".").pop()?.toLowerCase() || "";
-  return SOURCE_EXTENSIONS.has(ext);
-}
 
 function classifyFile(path: string): string {
   const name = path.split("/").pop() || "";
@@ -86,25 +25,6 @@ function classifyFile(path: string): string {
   if (/util|helper|lib/i.test(path)) return "utility";
   if (/component|page|view|layout|widget/i.test(path) || /\.(tsx|jsx|vue|svelte)$/.test(name)) return "component";
   return "other";
-}
-
-function filePriority(path: string): number {
-  const name = path.split("/").pop() || "";
-  let score = 0;
-  if (/^(index|main|app|server)\./i.test(name)) score += 10;
-  if (/package\.json|tsconfig|Cargo\.toml|go\.mod|pyproject\.toml/i.test(name)) score += 8;
-  if (/route|controller|handler|api/i.test(name)) score += 6;
-  if (/hook|use[A-Z]/i.test(name)) score += 5;
-  if (/component|page|view/i.test(path)) score += 4;
-  if (/model|schema|types/i.test(name)) score += 4;
-  if (/util|helper|lib/i.test(path)) score += 3;
-  if (/\.test\.|\.spec\./i.test(name)) score -= 3;
-  score -= Math.max(0, path.split("/").length - 3);
-  return score;
-}
-
-function decodeBase64Utf8(base64: string): string {
-  return Buffer.from(base64.replace(/\n/g, ""), "base64").toString("utf-8");
 }
 
 function parseGitignore(content: string): ((path: string) => boolean) {
@@ -282,19 +202,6 @@ function extractShallowInfo(path: string, content: string): ShallowFileInfo {
     if (name) signatures.push(name);
   }
   return { path, type: classifyFile(path), imports, exports, signatures, lineCount: content.split("\n").length, exportCount: exports.length };
-}
-
-function extractOwnerRepo(url: string) {
-  const match = url.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
-  if (!match) throw new Error("Invalid GitHub URL");
-  return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
-}
-
-function getGitHubHeaders(userToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { Accept: "application/vnd.github.v3+json", "User-Agent": "GitVisualizer-AI" };
-  const token = userToken || process.env.GITHUB_TOKEN;
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
 }
 
 function validateAnalysisResult(parsed: { nodes: any[]; edges: any[] }, knownPaths: Set<string>) {

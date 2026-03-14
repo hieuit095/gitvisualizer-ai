@@ -1,14 +1,23 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { X, FileText, Zap, Link2, Code2, MapPin, Loader2, RefreshCw, MessageCircle } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Code2,
+  FileText,
+  Link2,
+  Loader2,
+  MapPin,
+  MessageCircle,
+  RefreshCw,
+  X,
+  Zap,
+} from "lucide-react";
+import { fetchNodeDetail } from "@/lib/analysis";
+import { getStoredToken } from "@/lib/githubToken";
+import { SyntaxHighlighter, oneDark } from "@/lib/syntaxHighlighter";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
-import { fetchNodeDetail } from "@/lib/analysis";
-import { getStoredToken } from "@/components/GitHubTokenDialog";
-import type { RepoNode, NodeDetail } from "@/types/repo";
+import type { NodeDetail, RepoNode } from "@/types/repo";
 
 interface InfoPanelProps {
   node: RepoNode | null;
@@ -17,6 +26,14 @@ interface InfoPanelProps {
   onNodeDetailLoaded?: (nodeId: string, detail: NodeDetail) => void;
   onAskChat?: (question: string) => void;
 }
+
+interface LineRange {
+  start: number;
+  end: number;
+}
+
+const LINE_REF_REGEX =
+  /\b(?:lines?\s+(\d+)(?:\s*[-\u2013]\s*(\d+))?|L(\d+)(?:\s*[-\u2013]\s*L(\d+))?)\b/gi;
 
 const typeColors: Record<string, string> = {
   component: "bg-primary/15 text-primary border-primary/30",
@@ -34,38 +51,29 @@ const typeColors: Record<string, string> = {
 };
 
 function detectLanguage(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() || "";
-  const map: Record<string, string> = {
-    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-    py: "python", go: "go", rs: "rust", java: "java", rb: "ruby",
-    json: "json", yaml: "yaml", yml: "yaml", toml: "toml",
-    css: "css", scss: "scss", html: "html", md: "markdown",
+  const extension = path.split(".").pop()?.toLowerCase() || "";
+  const languageMap: Record<string, string> = {
+    ts: "typescript",
+    tsx: "tsx",
+    js: "javascript",
+    jsx: "jsx",
+    py: "python",
+    go: "go",
+    rs: "rust",
+    java: "java",
+    rb: "ruby",
+    json: "json",
+    yaml: "yaml",
+    yml: "yaml",
+    toml: "markup",
+    css: "css",
+    scss: "scss",
+    html: "markup",
+    md: "markdown",
   };
-  return map[ext] || "typescript";
+  return languageMap[extension] || "typescript";
 }
 
-// ─── Line reference parsing ────────────────────────────────────────────
-// Matches patterns like: "line 42", "lines 208-250", "(line 112)", "L42-L58"
-const LINE_REF_REGEX = /\b(?:lines?\s+(\d+)(?:\s*[-–]\s*(\d+))?|L(\d+)(?:\s*[-–]\s*L(\d+))?)\b/gi;
-
-interface LineRange {
-  start: number;
-  end: number;
-}
-
-function parseLineRanges(text: string): LineRange[] {
-  const ranges: LineRange[] = [];
-  let match;
-  const re = new RegExp(LINE_REF_REGEX.source, LINE_REF_REGEX.flags);
-  while ((match = re.exec(text)) !== null) {
-    const start = parseInt(match[1] || match[3], 10);
-    const end = match[2] || match[4] ? parseInt(match[2] || match[4], 10) : start;
-    if (!isNaN(start)) ranges.push({ start, end });
-  }
-  return ranges;
-}
-
-/** Render text with clickable line references */
 function TextWithLineRefs({
   text,
   onLineClick,
@@ -75,40 +83,43 @@ function TextWithLineRefs({
   onLineClick: (range: LineRange) => void;
   activeRange: LineRange | null;
 }) {
-  const parts: (string | { text: string; range: LineRange })[] = [];
+  const parts: Array<string | { text: string; range: LineRange }> = [];
+  const matcher = new RegExp(LINE_REF_REGEX.source, LINE_REF_REGEX.flags);
   let lastIndex = 0;
-  const re = new RegExp(LINE_REF_REGEX.source, LINE_REF_REGEX.flags);
-  let match;
+  let match: RegExpExecArray | null;
 
-  while ((match = re.exec(text)) !== null) {
+  while ((match = matcher.exec(text)) !== null) {
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
+
     const start = parseInt(match[1] || match[3], 10);
     const end = match[2] || match[4] ? parseInt(match[2] || match[4], 10) : start;
     parts.push({ text: match[0], range: { start, end } });
-    lastIndex = re.lastIndex;
+    lastIndex = matcher.lastIndex;
   }
+
   if (lastIndex < text.length) {
     parts.push(text.slice(lastIndex));
   }
 
   return (
     <>
-      {parts.map((part, i) => {
-        if (typeof part === "string") return <span key={i}>{part}</span>;
+      {parts.map((part, index) => {
+        if (typeof part === "string") return <span key={index}>{part}</span>;
+
         const isActive =
-          activeRange &&
-          activeRange.start === part.range.start &&
+          activeRange?.start === part.range.start &&
           activeRange.end === part.range.end;
+
         return (
           <button
-            key={i}
+            key={index}
             onClick={() => onLineClick(part.range)}
-            className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[11px] font-medium transition-colors cursor-pointer border ${
+            className={`inline-flex cursor-pointer items-center gap-0.5 rounded border px-1 py-0.5 font-mono text-[11px] font-medium transition-colors ${
               isActive
-                ? "bg-primary/25 text-primary border-primary/50"
-                : "bg-primary/10 text-primary/80 border-primary/20 hover:bg-primary/20 hover:text-primary"
+                ? "border-primary/50 bg-primary/25 text-primary"
+                : "border-primary/20 bg-primary/10 text-primary/80 hover:bg-primary/20 hover:text-primary"
             }`}
           >
             <Code2 className="h-2.5 w-2.5" />
@@ -120,12 +131,43 @@ function TextWithLineRefs({
   );
 }
 
-const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: InfoPanelProps) => {
+const InfoPanel = ({
+  node,
+  repoUrl,
+  onClose,
+  onNodeDetailLoaded,
+  onAskChat,
+}: InfoPanelProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [highlightedRange, setHighlightedRange] = useState<LineRange | null>(null);
   const codePreviewRef = useRef<HTMLDivElement>(null);
+
+  const loadDetail = useCallback(
+    async (targetNode: RepoNode) => {
+      setLoading(true);
+      setError(null);
+      setDetail(null);
+      try {
+        const result = await fetchNodeDetail(
+          repoUrl,
+          targetNode.path,
+          targetNode.summary,
+          getStoredToken() || undefined,
+        );
+        setDetail(result);
+        onNodeDetailLoaded?.(targetNode.id, result);
+      } catch (error: unknown) {
+        setError(
+          error instanceof Error ? error.message : "Failed to load details",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [onNodeDetailLoaded, repoUrl],
+  );
 
   useEffect(() => {
     if (!node) {
@@ -156,44 +198,31 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
 
     setHighlightedRange(null);
     loadDetail(node);
-  }, [node?.id]);
-
-  const loadDetail = async (targetNode: RepoNode) => {
-    setLoading(true);
-    setError(null);
-    setDetail(null);
-    try {
-      const result = await fetchNodeDetail(
-        repoUrl,
-        targetNode.path,
-        targetNode.summary,
-        getStoredToken() || undefined
-      );
-      setDetail(result);
-      onNodeDetailLoaded?.(targetNode.id, result);
-    } catch (e: any) {
-      setError(e.message || "Failed to load details");
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [loadDetail, node]);
 
   const handleLineClick = useCallback((range: LineRange) => {
-    setHighlightedRange(prev =>
-      prev && prev.start === range.start && prev.end === range.end ? null : range
+    setHighlightedRange((current) =>
+      current &&
+      current.start === range.start &&
+      current.end === range.end
+        ? null
+        : range,
     );
-    // Scroll to code preview
+
     setTimeout(() => {
-      codePreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      codePreviewRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
     }, 100);
   }, []);
 
-  // Compute highlighted line numbers set
   const highlightedLines = useMemo(() => {
     if (!highlightedRange) return new Set<number>();
+
     const lines = new Set<number>();
-    for (let i = highlightedRange.start; i <= highlightedRange.end; i++) {
-      lines.add(i);
+    for (let line = highlightedRange.start; line <= highlightedRange.end; line += 1) {
+      lines.add(line);
     }
     return lines;
   }, [highlightedRange]);
@@ -202,12 +231,11 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
 
   const colorClass = typeColors[node.type] || typeColors.other;
   const displaySummary = detail?.summary || node.summary;
-  const displayFunctions = detail?.keyFunctions?.length ? detail.keyFunctions : node.keyFunctions;
+  const displayFunctions = detail?.keyFunctions?.length
+    ? detail.keyFunctions
+    : node.keyFunctions;
   const displayTutorial = detail?.tutorial || node.tutorial;
   const displaySnippet = detail?.codeSnippet || node.codeSnippet;
-
-  // Determine if code snippet has line numbers we can reference
-  const snippetStartLine = 1; // Default; code preview starts at line 1
 
   return (
     <>
@@ -217,11 +245,12 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
       />
 
       <div className="fixed right-0 top-0 z-50 flex h-full w-full flex-col border-l border-border bg-card/95 backdrop-blur-md sm:w-96 md:absolute">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="min-w-0 flex items-center gap-2">
             <FileText className="h-4 w-4 shrink-0 text-primary" />
-            <h3 className="truncate font-mono text-sm font-semibold text-foreground">{node.name}</h3>
+            <h3 className="truncate font-mono text-sm font-semibold text-foreground">
+              {node.name}
+            </h3>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className={`text-[10px] ${colorClass}`}>
@@ -235,7 +264,6 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
 
         <ScrollArea className="flex-1">
           <div className="space-y-5 p-5">
-            {/* Summary */}
             <div>
               <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
                 <Zap className="h-3 w-3" /> Summary
@@ -255,11 +283,12 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
 
             <Separator className="bg-border" />
 
-            {/* Loading state for lazy details */}
             {loading && (
               <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-3">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-xs text-muted-foreground">Loading detailed AI analysis...</span>
+                <span className="text-xs text-muted-foreground">
+                  Loading detailed AI analysis...
+                </span>
               </div>
             )}
 
@@ -270,26 +299,28 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={() => node && loadDetail(node)}
+                  onClick={() => loadDetail(node)}
                 >
                   <RefreshCw className="h-3 w-3" />
                 </Button>
               </div>
             )}
 
-            {/* Key Functions */}
             {displayFunctions && displayFunctions.length > 0 && (
               <div>
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary">
                   Key Functions
                 </h4>
                 <ul className="space-y-1.5">
-                  {displayFunctions.map((fn, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                  {displayFunctions.map((item, index) => (
+                    <li
+                      key={`${item}-${index}`}
+                      className="flex items-start gap-2 text-sm text-muted-foreground"
+                    >
                       <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary" />
                       <code className="font-mono text-xs text-foreground">
                         <TextWithLineRefs
-                          text={fn}
+                          text={item}
                           onLineClick={handleLineClick}
                           activeRange={highlightedRange}
                         />
@@ -300,7 +331,6 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
               </div>
             )}
 
-            {/* Tutorial / Interactions */}
             {displayTutorial && (
               <>
                 <Separator className="bg-border" />
@@ -319,7 +349,6 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
               </>
             )}
 
-            {/* Code Snippet */}
             {displaySnippet && (
               <>
                 <Separator className="bg-border" />
@@ -336,9 +365,9 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
                       >
                         Lines {highlightedRange.start}
                         {highlightedRange.end !== highlightedRange.start
-                          ? `–${highlightedRange.end}`
+                          ? `-${highlightedRange.end}`
                           : ""}
-                        {" "}✕
+                        {" "}x
                       </Badge>
                     )}
                   </div>
@@ -377,7 +406,6 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
               </>
             )}
 
-            {/* Ask AI about this file */}
             {node.type !== "folder" && onAskChat && (
               <>
                 <Separator className="bg-border" />
@@ -385,7 +413,11 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
                   variant="outline"
                   size="sm"
                   className="w-full gap-2 border-primary/30 text-primary hover:bg-primary/10"
-                  onClick={() => onAskChat(`Tell me about the file "${node.name}" at ${node.path}. What does it do, how does it connect to the rest of the codebase, and what are its key responsibilities?`)}
+                  onClick={() =>
+                    onAskChat(
+                      `Tell me about the file "${node.name}" at ${node.path}. What does it do, how does it connect to the rest of the codebase, and what are its key responsibilities?`,
+                    )
+                  }
                 >
                   <MessageCircle className="h-3.5 w-3.5" />
                   Ask AI about this file
@@ -393,13 +425,14 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded, onAskChat }: In
               </>
             )}
 
-            {/* Path */}
             <Separator className="bg-border" />
             <div>
               <h4 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <MapPin className="h-3 w-3" /> Path
               </h4>
-              <p className="break-all font-mono text-xs text-muted-foreground">{node.path}</p>
+              <p className="break-all font-mono text-xs text-muted-foreground">
+                {node.path}
+              </p>
             </div>
           </div>
         </ScrollArea>

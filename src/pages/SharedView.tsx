@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { cacheAnalysis } from "@/lib/analysisCache";
+import type { AnalysisResult } from "@/types/repo";
 
 const SharedView = () => {
   const { id } = useParams<{ id: string }>();
@@ -16,16 +18,21 @@ const SharedView = () => {
 
     const load = async () => {
       try {
-        const res = await fetch(`/api/shared?id=${encodeURIComponent(id)}`);
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
+        const response = await fetch(`/api/shared?id=${encodeURIComponent(id)}`);
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
           setError(data.error || "Analysis not found or has expired");
           setLoading(false);
           return;
         }
 
-        const data = await res.json();
-        navigate(`/visualize?repo=${encodeURIComponent(data.repo_url)}`, { replace: true });
+        const data = await response.json();
+        if (data?.repo_url && data?.result) {
+          cacheAnalysis(data.repo_url, data.result as AnalysisResult);
+        }
+        navigate(`/visualize?repo=${encodeURIComponent(data.repo_url)}`, {
+          replace: true,
+        });
       } catch {
         setError("Failed to load shared analysis");
         setLoading(false);
@@ -40,7 +47,9 @@ const SharedView = () => {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
           <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="font-mono text-sm text-muted-foreground">Loading shared analysis…</p>
+          <p className="font-mono text-sm text-muted-foreground">
+            Loading shared analysis...
+          </p>
         </div>
       </div>
     );
@@ -50,7 +59,9 @@ const SharedView = () => {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6">
         <div className="max-w-md text-center">
-          <h2 className="mb-2 font-mono text-xl font-bold text-foreground">Link Expired</h2>
+          <h2 className="mb-2 font-mono text-xl font-bold text-foreground">
+            Link Expired
+          </h2>
           <p className="mb-6 text-sm text-muted-foreground">{error}</p>
           <button
             onClick={() => navigate("/")}

@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Download, Smartphone, Check, Share2 } from "lucide-react";
+import { Check, Download, Share2, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -9,23 +9,31 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 const Install = () => {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [deferredPrompt, setDeferredPrompt] =
+    useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    const ua = navigator.userAgent;
-    setIsIOS(/iPad|iPhone|iPod/.test(ua));
+    setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent));
 
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredPrompt(event as BeforeInstallPromptEvent);
     };
 
-    window.addEventListener("beforeinstallprompt", handler);
-    window.addEventListener("appinstalled", () => setInstalled(true));
+    const handleInstalled = () => setInstalled(true);
 
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleInstalled);
+
+    return () => {
+      window.removeEventListener(
+        "beforeinstallprompt",
+        handleBeforeInstallPrompt,
+      );
+      window.removeEventListener("appinstalled", handleInstalled);
+    };
   }, []);
 
   const handleInstall = async () => {
@@ -51,55 +59,74 @@ const Install = () => {
           Install GitVisualizer AI
         </h1>
         <p className="mb-8 text-sm text-muted-foreground">
-          Add to your home screen for instant access, offline support, and a native app experience.
+          Add it to your home screen for quick access, offline support, and a
+          more app-like experience.
         </p>
 
         {installed ? (
           <div className="flex items-center justify-center gap-2 text-primary">
             <Check className="h-5 w-5" />
-            <span className="font-medium">App installed!</span>
+            <span className="font-medium">App installed</span>
           </div>
         ) : deferredPrompt ? (
-          <Button onClick={handleInstall} className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button
+            onClick={handleInstall}
+            className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+          >
             <Download className="h-4 w-4" />
             Install App
           </Button>
         ) : isIOS ? (
           <div className="rounded-lg border border-border/50 bg-card p-4 text-left">
-            <p className="mb-2 text-sm font-medium text-foreground">To install on iOS:</p>
+            <p className="mb-2 text-sm font-medium text-foreground">
+              To install on iOS:
+            </p>
             <ol className="space-y-2 text-sm text-muted-foreground">
               <li className="flex items-start gap-2">
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">1</span>
-                Tap the <Share2 className="inline h-4 w-4" /> share button in Safari
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                  1
+                </span>
+                Tap the <Share2 className="inline h-4 w-4" /> share button in
+                Safari.
               </li>
               <li className="flex items-start gap-2">
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">2</span>
-                Scroll down and tap "Add to Home Screen"
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                  2
+                </span>
+                Scroll down and tap "Add to Home Screen".
               </li>
               <li className="flex items-start gap-2">
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">3</span>
-                Tap "Add" to confirm
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                  3
+                </span>
+                Tap "Add" to confirm.
               </li>
             </ol>
           </div>
         ) : (
           <div className="rounded-lg border border-border/50 bg-card p-4 text-left">
-            <p className="mb-2 text-sm font-medium text-foreground">To install:</p>
+            <p className="mb-2 text-sm font-medium text-foreground">
+              To install:
+            </p>
             <ol className="space-y-2 text-sm text-muted-foreground">
               <li className="flex items-start gap-2">
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">1</span>
-                Open the browser menu (⋮ or ⋯)
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                  1
+                </span>
+                Open the browser menu.
               </li>
               <li className="flex items-start gap-2">
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">2</span>
-                Tap "Install app" or "Add to Home Screen"
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                  2
+                </span>
+                Choose "Install app" or "Add to Home Screen".
               </li>
             </ol>
           </div>
         )}
 
         <a href="/" className="mt-6 inline-block text-sm text-primary hover:underline">
-          ← Back to home
+          Back to home
         </a>
       </motion.div>
     </div>

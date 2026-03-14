@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { GitBranch, Sparkles, ArrowRight, Github, Lock } from "lucide-react";
+import { ArrowRight, GitBranch, Github, Lock, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import GitHubTokenDialog from "@/components/GitHubTokenDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
-import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
+import { getStoredToken } from "@/lib/githubToken";
 
 const GITHUB_URL_REGEX = /^https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/?$/;
 
@@ -18,10 +19,17 @@ const Index = () => {
       toast({ title: "Please enter a GitHub URL", variant: "destructive" });
       return;
     }
+
     if (!GITHUB_URL_REGEX.test(url.trim())) {
-      toast({ title: "Invalid GitHub URL", description: "Please enter a valid public repo URL (e.g. https://github.com/user/repo)", variant: "destructive" });
+      toast({
+        title: "Invalid GitHub URL",
+        description:
+          "Please enter a valid public repo URL (for example https://github.com/user/repo).",
+        variant: "destructive",
+      });
       return;
     }
+
     navigate(`/visualize?repo=${encodeURIComponent(url.trim())}`);
   };
 
@@ -74,7 +82,7 @@ const Index = () => {
           className="mb-10 text-lg text-muted-foreground"
         >
           AI-powered architecture diagrams. Understand data flows, dependencies,
-          and module relationships — without reading a single line of code.
+          and module relationships without reading a single line of code.
         </motion.p>
 
         <motion.div
@@ -87,8 +95,8 @@ const Index = () => {
             <Github className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
+              onChange={(event) => setUrl(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && handleAnalyze()}
               placeholder="https://github.com/user/repo"
               className="h-12 border-border/50 bg-card pl-11 font-mono text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
             />
@@ -109,12 +117,17 @@ const Index = () => {
           transition={{ duration: 0.6, delay: 0.5 }}
           className="mt-8 flex flex-wrap items-center justify-center gap-3"
         >
-          {["Interactive diagrams", "AI summaries", "Dependency mapping", "Private repos"].map((feat) => (
+          {[
+            "Interactive diagrams",
+            "AI summaries",
+            "Dependency mapping",
+            "Private repos",
+          ].map((feature) => (
             <span
-              key={feat}
+              key={feature}
               className="rounded-full border border-border/50 bg-muted/50 px-4 py-1.5 text-xs font-medium text-muted-foreground"
             >
-              {feat}
+              {feature}
             </span>
           ))}
         </motion.div>
@@ -129,7 +142,9 @@ const Index = () => {
             trigger={
               <button className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary">
                 <Lock className="h-3 w-3" />
-                {getStoredToken() ? "GitHub token configured ✓" : "Add GitHub token for private repos"}
+                {getStoredToken()
+                  ? "GitHub token configured"
+                  : "Add GitHub token for private repos"}
               </button>
             }
           />

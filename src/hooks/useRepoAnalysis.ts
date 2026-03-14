@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
-import { getStoredToken } from "@/components/GitHubTokenDialog";
 import { analyzeRepository } from "@/lib/analysis";
-import { loadCachedAnalysis, cacheAnalysis } from "@/lib/analysisCache";
-import type { AnalysisResult, ProgressEvent, NodeDetail } from "@/types/repo";
+import { cacheAnalysis, loadCachedAnalysis } from "@/lib/analysisCache";
+import { getStoredToken } from "@/lib/githubToken";
+import type { AnalysisResult, NodeDetail, ProgressEvent } from "@/types/repo";
 
 const stepMapping: Record<string, number> = {
-  fetch: 0, fetch_done: 0,
-  filter: 1, filter_done: 1,
-  extract: 2, extract_done: 2,
+  fetch: 0,
+  fetch_done: 0,
+  filter: 1,
+  filter_done: 1,
+  extract: 2,
+  extract_done: 2,
   analyze: 3,
   done: 4,
 };
@@ -53,13 +56,16 @@ export function useRepoAnalysis(repoUrl: string) {
       setProgressStep(0);
       setProgressEvents([]);
 
-      // Try localStorage cache first (fastest)
       if (!forceRefresh) {
         const cached = loadCachedAnalysis(repoUrl);
         if (cached) {
           applyResult(cached);
           setTimeout(() => setLoading(false), 200);
-          toast({ title: "Loaded from cache", description: "Using cached analysis. Click re-analyze for a fresh scan." });
+          toast({
+            title: "Loaded from cache",
+            description:
+              "Using cached analysis. Click re-analyze for a fresh scan.",
+          });
           return;
         }
       }
@@ -69,31 +75,35 @@ export function useRepoAnalysis(repoUrl: string) {
           repoUrl,
           getStoredToken() || undefined,
           (event) => {
-            setProgressEvents((prev) => [...prev, event]);
-            const stepIdx = stepMapping[event.step];
-            if (stepIdx !== undefined) {
-              setProgressStep(stepIdx);
+            setProgressEvents((previous) => [...previous, event]);
+            const stepIndex = stepMapping[event.step];
+            if (stepIndex !== undefined) {
+              setProgressStep(stepIndex);
             }
           },
-          forceRefresh
+          forceRefresh,
         );
 
         applyResult(result);
         cacheAnalysis(repoUrl, result);
 
-        // Fire-and-forget: index code chunks for RAG
         setIndexingStatus("indexing");
         fetch("/api/embed-chunks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repoUrl, githubToken: getStoredToken() || undefined }),
+          body: JSON.stringify({
+            repoUrl,
+            githubToken: getStoredToken() || undefined,
+          }),
         })
-          .then((res) => {
-            if (!res.ok) console.error("Embed-chunks error:", res.status);
+          .then((response) => {
+            if (!response.ok) {
+              console.error("Embed-chunks error:", response.status);
+            }
             setIndexingStatus("done");
           })
-          .catch((err) => {
-            console.error("Embed-chunks error:", err);
+          .catch((error) => {
+            console.error("Embed-chunks error:", error);
             setIndexingStatus("done");
           });
 
@@ -102,18 +112,21 @@ export function useRepoAnalysis(repoUrl: string) {
           if (result.wasTruncated) {
             toast({
               title: "Large repository",
-              description: `${result.totalFiles} files found → ${result.filteredOut} filtered out → ${result.nodes.length} nodes shown.`,
+              description: `${result.totalFiles} files found -> ${result.filteredOut} filtered out -> ${result.nodes.length} nodes shown.`,
             });
           }
         }, 600);
-      } catch (err: unknown) {
-        console.error(err);
-        const message = err instanceof Error ? err.message : "Failed to analyze repository";
+      } catch (error: unknown) {
+        console.error(error);
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to analyze repository";
         setError(message);
         setLoading(false);
       }
     },
-    [repoUrl, navigate, applyResult]
+    [applyResult, navigate, repoUrl],
   );
 
   useEffect(() => {
@@ -121,12 +134,12 @@ export function useRepoAnalysis(repoUrl: string) {
   }, [runAnalysis]);
 
   const handleNodeDetailLoaded = useCallback((nodeId: string, detail: NodeDetail) => {
-    setAnalysisResult((prev) => {
-      if (!prev) return prev;
+    setAnalysisResult((previous) => {
+      if (!previous) return previous;
       return {
-        ...prev,
-        nodes: prev.nodes.map((n) =>
-          n.id === nodeId ? { ...n, ...detail, detailLoaded: true } : n
+        ...previous,
+        nodes: previous.nodes.map((node) =>
+          node.id === nodeId ? { ...node, ...detail, detailLoaded: true } : node,
         ),
       };
     });

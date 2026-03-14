@@ -1,155 +1,114 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/git-branch.svg" alt="GitVisualizer AI Logo" width="100" height="100">
+  <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/git-branch.svg" alt="GitVisualizer AI logo" width="100" height="100">
 
   # GitVisualizer AI
 
-  **Visualize any GitHub repository in seconds with AI-powered architecture diagrams.**
-
-  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-  [![Vite](https://img.shields.io/badge/vite-%23646CFF.svg?style=flat&logo=vite&logoColor=white)](https://vitejs.dev/)
-  [![React](https://img.shields.io/badge/react-%2320232a.svg?style=flat&logo=react&logoColor=%2361DAFB)](https://reactjs.org/)
-  [![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-  [![Tailwind CSS](https://img.shields.io/badge/tailwindcss-%2338B2AC.svg?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-  [![Vercel](https://img.shields.io/badge/vercel-%23000000.svg?style=flat&logo=vercel&logoColor=white)](https://vercel.com/)
+  Visualize GitHub repositories with AI-generated architecture diagrams, node summaries, and code-aware chat.
 </div>
 
-<br />
+## Overview
 
-## 📖 Table of Contents
+GitVisualizer AI analyzes a repository tree, filters out non-source noise, extracts lightweight structure from important files, and asks an OpenAI-compatible model to generate an architecture graph. The frontend renders that graph as an interactive diagram with node drill-down, history, sharing, and repo chat.
 
-- [Vision & Project Overview](#-vision--project-overview)
-- [Key Features](#-key-features)
-- [How It Works](#-how-it-works)
-- [Technologies Used](#-technologies-used)
-- [Getting Started](#-getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Environment Variables](#environment-variables)
-- [Usage](#-usage)
-- [Deploying to Vercel](#-deploying-to-vercel)
+The app is serverless and database-free by default. Analysis history and code chunks are stored in memory, with optional JSON persistence if `DATA_DIR` is configured.
 
----
+## Highlights
 
-## 🚀 Vision & Project Overview
+- Interactive architecture graph built with React Flow
+- File-level AI summaries and repo-wide chat with semantic search fallback
+- OpenAI-compatible provider support with custom base URL and model selection
+- Private repository support through a locally stored GitHub token
+- Analysis history, share links, and Markdown/Mermaid export
 
-**GitVisualizer AI** was built to solve a common developer problem: inheriting or exploring a new, large, and undocumented repository and struggling to understand its architecture. Instead of reading hundreds of files to figure out data flows and dependencies, GitVisualizer AI automatically maps it out for you.
+## Stack
 
-This project is a **zero-database, serverless web application**. It analyzes GitHub repositories, provides RAG (Retrieval-Augmented Generation) code search, and generates system architecture diagrams using Large Language Models (LLMs). It uses ephemeral memory and relies heavily on Vercel's Serverless Function architecture or a local cache, eliminating the need for complex database setups (like Postgres or Supabase).
+- Vite + React + TypeScript
+- Tailwind CSS + shadcn/ui primitives
+- Vercel serverless functions in `api/`
+- OpenAI-compatible chat/embedding APIs
 
----
-
-## ✨ Key Features
-
-- **Zero Database Architecture**: No complex database configuration required. Data is cached in-memory locally or ephemerally in Vercel.
-- **AI-Powered Architecture Diagrams**: Automatically generates interactive diagrams showing data flows, component relationships, and dependencies.
-- **Multi-Provider AI Support**: Bring your own keys! Supports multiple AI providers:
-  - `openai` (GPT-4o, etc.)
-  - `openrouter` (Gemini, Claude, Llama, etc.)
-  - `together` (Llama 3, etc.)
-  - `gemini` (Google Gemini 1.5/2.0)
-- **Smart Ignore Engine**: Intelligently analyzes only real source code while skipping build artifacts, `node_modules`, lock files, and vendor folders to save context window tokens and prevent API rate limiting.
-- **RAG Code Search**: Ask questions about the codebase and get context-aware answers.
-- **Private Repository Support**: Configure a GitHub token to analyze your private repositories securely.
-
----
-
-## 🛠️ How It Works
-
-1. **Input URL**: You paste a GitHub repository URL.
-2. **Fetch & Filter**: The backend fetches the repository tree using the GitHub API and applies a "Smart Ignore" filter to drop binaries, assets, and dependencies.
-3. **Extract Skeleton**: It downloads the source files and extracts "code skeletons" (function signatures, class definitions, exports/imports) to minimize payload size.
-4. **AI Analysis**: The extracted structure is sent to your configured AI provider (OpenAI, Gemini, etc.) with a strict prompt to generate a structured JSON graph.
-5. **Visualization**: The frontend renders the generated JSON as an interactive, draggable node-based architecture diagram.
-
----
-
-## 💻 Technologies Used
-
-- **Frontend**:
-  - [Vite](https://vitejs.dev/) - Blazing fast build tool.
-  - [React 18](https://react.dev/) - UI Library.
-  - [TypeScript](https://www.typescriptlang.org/) - Type safety.
-  - [Tailwind CSS](https://tailwindcss.com/) - Utility-first styling.
-  - [shadcn/ui](https://ui.shadcn.com/) - Accessible UI components.
-  - [React Flow / @xyflow/react](https://reactflow.dev/) - Interactive diagram rendering.
-- **Backend**:
-  - [Vercel Serverless Functions](https://vercel.com/docs/functions/serverless-functions) (`/api/*`) for stateless compute.
-  - Native `fetch` wrappers for AI integrations and streaming LLM outputs.
-
----
-
-## 🏁 Getting Started
-
-To run the project locally on your machine:
+## Getting Started
 
 ### Prerequisites
-- Node.js (v18 or higher recommended)
-- npm, yarn, pnpm, or bun
 
-### Installation
+- Node.js 18+
+- npm
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/hieuit095/gitvisualizer-ai/
-   cd gitvisualizer-ai
-   ```
+### Install
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+```bash
+git clone https://github.com/hieuit095/gitvisualizer-ai/
+cd gitvisualizer-ai
+npm install
+```
 
-### Environment Variables
+### Configure environment
 
-You need to configure your environment variables to use the AI capabilities.
+Copy the example file and adjust the values:
 
-1. **Copy the example environment file:**
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env
+```
 
-2. **Configure your `.env` file:**
-   Open the `.env` file and set your desired AI provider and API key.
+Minimal OpenAI preset:
 
-   ```env
-   # Choose from: "openai", "openrouter", "together", "gemini"
-   AI_PROVIDER=openai
+```env
+AI_PROVIDER=openai
+AI_API_KEY=sk-your-api-key
+AI_CHAT_MODEL=gpt-4o-mini
+```
 
-   # Your API key for the chosen provider
-   AI_API_KEY=sk-your-api-key
+OpenRouter preset:
 
-   # Optional: Set a specific model to use
-   # AI_MODEL=gpt-4o-mini
+```env
+AI_PROVIDER=openrouter
+AI_API_KEY=sk-or-v1-your-openrouter-key
+AI_CHAT_MODEL=openai/gpt-4o-mini
+OPENROUTER_HTTP_REFERER=https://your-app.example
+OPENROUTER_APP_NAME=GitVisualizer AI
+```
 
-   # Optional GitHub Token to read private repos & avoid strict API rate limits
-   GITHUB_TOKEN=ghp_your_github_token_here
-   ```
+Custom OpenAI-compatible provider:
 
----
+```env
+AI_PROVIDER=my-provider
+AI_API_KEY=your-provider-key
+AI_BASE_URL=https://api.example.com/v1
+AI_CHAT_MODEL=my-chat-model
+AI_EMBEDDING_MODEL=my-embedding-model
+AI_ENABLE_EMBEDDINGS=true
+```
 
-## 🕹️ Usage
+Optional variables:
 
-Once your environment variables are configured, start the development server:
+- `GITHUB_TOKEN`: improves rate limits and enables private repo access
+- `DATA_DIR`: enables JSON persistence across local runs
+- `AI_MODEL`: legacy alias for `AI_CHAT_MODEL`
+
+## Run locally
 
 ```bash
 npm run dev
 ```
 
-Open your browser and navigate to the local URL (usually `http://localhost:5173`).
-1. Paste a public (or private, if `GITHUB_TOKEN` is set) GitHub repository URL into the input field.
-2. Click **Analyze**.
-3. Wait for the AI to process the code skeletons and generate the diagram.
-4. Explore the interactive architecture map!
+Open the local URL printed by Vite, paste a GitHub repository URL, and start exploring.
 
----
+## AI Provider Configuration
 
-## ☁️ Deploying to Vercel
+The backend now treats the built-in providers as presets, not as a hard allowlist.
 
-Deployment is extremely straightforward because the app is completely stateless and serverless. No external database instance is needed.
+- `AI_PROVIDER` can be `openai`, `openrouter`, `together`, `gemini`, or any custom label.
+- If you use a custom label, set `AI_BASE_URL` to an OpenAI-compatible `/v1` base URL.
+- `AI_CHAT_MODEL` controls the model used for repository analysis, node summaries, and chat.
+- `AI_EMBEDDING_MODEL` controls semantic search. If it is unset, the app falls back to text search.
+- `AI_ENABLE_EMBEDDINGS=false` disables semantic search even for presets that support embeddings.
 
-1. Install the [Vercel CLI](https://vercel.com/cli) or connect your GitHub repository directly to Vercel via the web dashboard.
-2. In the Vercel project settings, go to **Environment Variables** and add:
-   - `AI_PROVIDER`
-   - `AI_API_KEY`
-   - `GITHUB_TOKEN` (Optional, but highly recommended)
-3. Deploy! The `/api/*` directory automatically sets up Vercel Serverless Functions to handle AI analysis on the fly.
+## Deploying
+
+Deploy to Vercel as a standard Vite app with serverless functions:
+
+1. Import the repo into Vercel.
+2. Add the environment variables from `.env.example`.
+3. Deploy.
+
+The `api/` directory is picked up automatically as Vercel functions.

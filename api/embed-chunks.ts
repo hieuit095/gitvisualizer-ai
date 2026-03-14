@@ -1,23 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { chatCompletion, createEmbeddings, supportsEmbeddings } from "./lib/ai-client.js";
 import { deleteChunksForRepo, storeChunk, flushChunksToDisk } from "./lib/store.js";
-
-function decodeBase64Utf8(base64: string): string {
-  return Buffer.from(base64.replace(/\n/g, ""), "base64").toString("utf-8");
-}
-
-function extractOwnerRepo(url: string) {
-  const match = url.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
-  if (!match) throw new Error("Invalid GitHub URL");
-  return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
-}
-
-function getGitHubHeaders(userToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { Accept: "application/vnd.github.v3+json", "User-Agent": "GitVisualizer-AI" };
-  const token = userToken || process.env.GITHUB_TOKEN;
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
-}
+import {
+  decodeBase64Utf8,
+  extractOwnerRepo,
+  getGitHubHeaders,
+  isBlockedRepoPath as shouldSkip,
+  isLikelySourceFile as isSourceFile,
+  repoFilePriority as filePriority,
+} from "./lib/github.js";
 
 interface CodeChunk {
   filePath: string; chunkIndex: number; chunkType: string; chunkName: string;
@@ -67,38 +58,6 @@ function chunkFile(content: string, filePath: string): CodeChunk[] {
     } else merged.push({ ...chunk });
   }
   return merged;
-}
-
-const BLOCKED_DIRS = new Set(["node_modules", "venv", ".venv", "env", ".git", "dist", "build", "out", "target", ".next", ".nuxt", "vendor", "coverage", "__pycache__", ".cache"]);
-const BLOCKED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".mp4", ".mp3", ".wav", ".pdf", ".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".woff", ".woff2", ".ttf", ".map", ".min.js", ".min.css"]);
-const LOCK_FILES = new Set(["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "bun.lockb", "bun.lock"]);
-const SOURCE_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "rs", "java", "kt", "rb", "php", "css", "scss", "html", "vue", "svelte", "sql", "graphql", "proto", "sh"]);
-
-function shouldSkip(path: string): boolean {
-  const segments = path.split("/");
-  for (const seg of segments.slice(0, -1)) { if (BLOCKED_DIRS.has(seg)) return true; if (seg.startsWith(".") && seg.length > 1 && seg !== ".github") return true; }
-  const filename = segments[segments.length - 1];
-  if (LOCK_FILES.has(filename)) return true;
-  const dotIdx = filename.lastIndexOf(".");
-  if (dotIdx !== -1 && BLOCKED_EXTENSIONS.has(filename.slice(dotIdx).toLowerCase())) return true;
-  return false;
-}
-
-function isSourceFile(path: string): boolean {
-  const name = path.split("/").pop() || "";
-  if (["Makefile", "Dockerfile", "Procfile"].includes(name)) return true;
-  return SOURCE_EXTENSIONS.has((name.split(".").pop() || "").toLowerCase());
-}
-
-function filePriority(path: string): number {
-  const name = path.split("/").pop() || "";
-  let score = 0;
-  if (/^(index|main|app|server)\./i.test(name)) score += 10;
-  if (/package\.json|tsconfig/i.test(name)) score += 8;
-  if (/route|controller|handler|api/i.test(name)) score += 6;
-  if (/\.test\.|\.spec\./i.test(name)) score -= 3;
-  score -= Math.max(0, path.split("/").length - 3);
-  return score;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

@@ -1,23 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { chatCompletion } from "./lib/ai-client.js";
 import { getChunksForFile } from "./lib/store.js";
-
-function decodeBase64Utf8(base64: string): string {
-  return Buffer.from(base64.replace(/\n/g, ""), "base64").toString("utf-8");
-}
-
-function extractOwnerRepo(url: string) {
-  const match = url.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
-  if (!match) throw new Error("Invalid GitHub URL");
-  return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
-}
-
-function getGitHubHeaders(userToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { Accept: "application/vnd.github.v3+json", "User-Agent": "GitVisualizer-AI" };
-  const token = userToken || process.env.GITHUB_TOKEN;
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
-}
+import {
+  decodeBase64Utf8,
+  extractOwnerRepo,
+  getGitHubHeaders,
+} from "./lib/github.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
