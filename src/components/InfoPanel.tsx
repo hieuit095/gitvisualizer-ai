@@ -1,15 +1,20 @@
-import { X, FileText, Zap, Link2, Code2, MapPin } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, FileText, Zap, Link2, Code2, MapPin, Loader2, RefreshCw } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import type { RepoNode } from "@/types/repo";
+import { fetchNodeDetail } from "@/lib/analysis";
+import { getStoredToken } from "@/components/GitHubTokenDialog";
+import type { RepoNode, NodeDetail } from "@/types/repo";
 
 interface InfoPanelProps {
   node: RepoNode | null;
+  repoUrl: string;
   onClose: () => void;
+  onNodeDetailLoaded?: (nodeId: string, detail: NodeDetail) => void;
 }
 
 const typeColors: Record<string, string> = {
@@ -38,14 +43,72 @@ function detectLanguage(path: string): string {
   return map[ext] || "typescript";
 }
 
-const InfoPanel = ({ node, onClose }: InfoPanelProps) => {
+const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded }: InfoPanelProps) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<NodeDetail | null>(null);
+
+  // Reset state when node changes and trigger lazy load
+  useEffect(() => {
+    if (!node) {
+      setDetail(null);
+      setError(null);
+      return;
+    }
+
+    // If detail already loaded on the node, use it
+    if (node.detailLoaded && node.tutorial) {
+      setDetail({
+        summary: node.summary,
+        keyFunctions: node.keyFunctions || [],
+        tutorial: node.tutorial || "",
+        codeSnippet: node.codeSnippet || "",
+      });
+      setError(null);
+      return;
+    }
+
+    // For folders, skip lazy load
+    if (node.type === "folder") {
+      setDetail(null);
+      setError(null);
+      return;
+    }
+
+    // Trigger lazy AI summarization
+    loadDetail(node);
+  }, [node?.id]);
+
+  const loadDetail = async (targetNode: RepoNode) => {
+    setLoading(true);
+    setError(null);
+    setDetail(null);
+    try {
+      const result = await fetchNodeDetail(
+        repoUrl,
+        targetNode.path,
+        targetNode.summary,
+        getStoredToken() || undefined
+      );
+      setDetail(result);
+      onNodeDetailLoaded?.(targetNode.id, result);
+    } catch (e: any) {
+      setError(e.message || "Failed to load details");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!node) return null;
 
   const colorClass = typeColors[node.type] || typeColors.other;
+  const displaySummary = detail?.summary || node.summary;
+  const displayFunctions = detail?.keyFunctions?.length ? detail.keyFunctions : node.keyFunctions;
+  const displayTutorial = detail?.tutorial || node.tutorial;
+  const displaySnippet = detail?.codeSnippet || node.codeSnippet;
 
   return (
     <>
-      {/* Backdrop on mobile */}
       <div
         className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm md:hidden"
         onClick={onClose}
@@ -76,20 +139,42 @@ const InfoPanel = ({ node, onClose }: InfoPanelProps) => {
                 <Zap className="h-3 w-3" /> Summary
               </h4>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                {node.summary || "No summary available."}
+                {displaySummary || "No summary available."}
               </p>
             </div>
 
             <Separator className="bg-border" />
 
+            {/* Loading state for lazy details */}
+            {loading && (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-xs text-muted-foreground">Loading detailed AI analysis...</span>
+              </div>
+            )}
+
+            {error && (
+              <div className="flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3">
+                <span className="text-xs text-destructive">{error}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => node && loadDetail(node)}
+                >
+                  <RefreshCw className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+
             {/* Key Functions */}
-            {node.keyFunctions && node.keyFunctions.length > 0 && (
+            {displayFunctions && displayFunctions.length > 0 && (
               <div>
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary">
                   Key Functions
                 </h4>
                 <ul className="space-y-1.5">
-                  {node.keyFunctions.map((fn, i) => (
+                  {displayFunctions.map((fn, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
                       <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary" />
                       <code className="font-mono text-xs text-foreground">{fn}</code>
@@ -100,20 +185,20 @@ const InfoPanel = ({ node, onClose }: InfoPanelProps) => {
             )}
 
             {/* Tutorial / Interactions */}
-            {node.tutorial && (
+            {displayTutorial && (
               <>
                 <Separator className="bg-border" />
                 <div>
                   <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-primary">
                     <Link2 className="h-3 w-3" /> How It Connects
                   </h4>
-                  <p className="text-sm leading-relaxed text-muted-foreground">{node.tutorial}</p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{displayTutorial}</p>
                 </div>
               </>
             )}
 
             {/* Code Snippet */}
-            {node.codeSnippet && (
+            {displaySnippet && (
               <>
                 <Separator className="bg-border" />
                 <div>
@@ -126,7 +211,7 @@ const InfoPanel = ({ node, onClose }: InfoPanelProps) => {
                       style={oneDark}
                       customStyle={{ margin: 0, padding: "12px", fontSize: "11px", background: "hsl(240, 15%, 6%)" }}
                     >
-                      {node.codeSnippet}
+                      {displaySnippet}
                     </SyntaxHighlighter>
                   </div>
                 </div>

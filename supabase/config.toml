@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.chat-repo]
 verify_jwt = false
+
+[functions.summarize-node]
+verify_jwt = false

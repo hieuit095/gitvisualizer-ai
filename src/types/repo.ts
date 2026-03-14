@@ -7,6 +7,8 @@ export interface RepoNode {
   tutorial?: string;
   codeSnippet?: string;
   path: string;
+  /** Whether detailed AI analysis has been loaded for this node */
+  detailLoaded?: boolean;
 }
 
 export interface RepoEdge {
@@ -17,11 +19,29 @@ export interface RepoEdge {
   label?: string;
 }
 
+export interface ProgressEvent {
+  type: "progress";
+  step: string;
+  message: string;
+  totalFiles?: number;
+  filteredOut?: number;
+  kept?: number;
+}
+
 export interface AnalysisResult {
   repoName: string;
   repoUrl: string;
   totalFiles?: number;
   wasTruncated?: boolean;
+  filteredFiles?: number;
+  filteredOut?: number;
   nodes: RepoNode[];
   edges: RepoEdge[];
+}
+
+export interface NodeDetail {
+  summary: string;
+  keyFunctions: string[];
+  tutorial: string;
+  codeSnippet: string;
 }
