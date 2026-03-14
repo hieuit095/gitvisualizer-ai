@@ -98,6 +98,7 @@ serve(async (req) => {
 
           if (chunks && chunks.length > 0) {
             searchMethod = "text";
+            chunksRetrieved = chunks.length;
             ragContext = "\n\n## Retrieved Code Chunks (from actual source code)\n" +
               chunks
                 .map(
