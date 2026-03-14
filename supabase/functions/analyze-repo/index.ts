@@ -201,6 +201,31 @@ function filePriority(path: string): number {
   return score;
 }
 
+// ─── File Header Extraction (Layer 2) ──────────────────────────────────
+
+function extractFileHeader(content: string, maxLines = 60): string {
+  const lines = content.split("\n");
+  const header: string[] = [];
+  let braceDepth = 0;
+  for (const line of lines) {
+    if (header.length >= maxLines) break;
+    const trimmed = line.trim();
+    const opens = (line.match(/{/g) || []).length;
+    const closes = (line.match(/}/g) || []).length;
+    // Keep line if we're at top level, or it's a declaration/comment/blank
+    if (
+      braceDepth <= 1 ||
+      /^(import|export|interface|type|class|enum|const|let|var|function|async|abstract|public|private|protected|def |fn |func )/.test(trimmed) ||
+      trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*") || trimmed === ""
+    ) {
+      header.push(line);
+    }
+    braceDepth += opens - closes;
+    if (braceDepth < 0) braceDepth = 0;
+  }
+  return header.join("\n");
+}
+
 // ─── Pass 1: Import/Export Extraction ──────────────────────────────────
 
 interface ShallowFileInfo {
@@ -209,6 +234,8 @@ interface ShallowFileInfo {
   imports: string[];
   exports: string[];
   signatures: string[];
+  lineCount?: number;
+  exportCount?: number;
 }
 
 function extractShallowInfo(path: string, content: string): ShallowFileInfo {
@@ -234,7 +261,8 @@ function extractShallowInfo(path: string, content: string): ShallowFileInfo {
     if (name) signatures.push(name);
   }
 
-  return { path, type: classifyFile(path), imports, exports, signatures };
+  const lineCount = content.split("\n").length;
+  return { path, type: classifyFile(path), imports, exports, signatures, lineCount, exportCount: exports.length };
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
