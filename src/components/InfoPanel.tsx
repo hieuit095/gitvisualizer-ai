@@ -219,6 +219,22 @@ const InfoPanel = ({ node, repoUrl, onClose, onNodeDetailLoaded }: InfoPanelProp
               </>
             )}
 
+            {/* Ask AI about this file */}
+            {node.type !== "folder" && onAskChat && (
+              <>
+                <Separator className="bg-border" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2 border-primary/30 text-primary hover:bg-primary/10"
+                  onClick={() => onAskChat(`Tell me about the file "${node.name}" at ${node.path}. What does it do, how does it connect to the rest of the codebase, and what are its key responsibilities?`)}
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Ask AI about this file
+                </Button>
+              </>
+            )}
+
             {/* Path */}
             <Separator className="bg-border" />
             <div>
