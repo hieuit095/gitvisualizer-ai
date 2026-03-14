@@ -78,6 +78,7 @@ const RepoChat = ({ analysisResult, askAboutNode, onAskHandled }: RepoChatProps)
             messages: updatedMessages,
             repoContext: {
               repoName: analysisResult.repoName,
+              repoUrl: analysisResult.repoUrl,
               nodes: analysisResult.nodes,
               edges: analysisResult.edges,
             },
