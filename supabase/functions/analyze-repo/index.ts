@@ -442,6 +442,7 @@ interface ShallowFileInfo {
   signatures: string[];
   lineCount?: number;
   exportCount?: number;
+  skeleton?: CodeSkeleton;
 }
 
 function extractShallowInfo(path: string, content: string): ShallowFileInfo {
