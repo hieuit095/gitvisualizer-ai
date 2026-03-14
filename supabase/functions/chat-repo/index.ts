@@ -65,6 +65,7 @@ serve(async (req) => {
 
             if (chunks && chunks.length > 0) {
               searchMethod = "vector";
+              chunksRetrieved = chunks.length;
               ragContext = "\n\n## Retrieved Code Chunks (semantic vector search)\n" +
                 chunks
                   .map(
