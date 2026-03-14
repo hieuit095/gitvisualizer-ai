@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   ReactFlow,
@@ -7,11 +7,7 @@ import {
   Controls,
   Background,
   BackgroundVariant,
-  useNodesState,
-  useEdgesState,
-  useReactFlow,
   type Node,
-  type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ArrowLeft, GitBranch, ArrowDownUp, ArrowRightLeft, AlertTriangle, RotateCcw, AlertCircle, Lock } from "lucide-react";
@@ -19,170 +15,61 @@ import Legend from "@/components/Legend";
 import ExportButton from "@/components/ExportButton";
 import NodeSearch from "@/components/NodeSearch";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/hooks/use-toast";
 import FileNode from "@/components/nodes/FileNode";
 import FolderNode from "@/components/nodes/FolderNode";
 import InfoPanel from "@/components/InfoPanel";
 import AnalysisProgress from "@/components/AnalysisProgress";
 import GitHubTokenDialog, { getStoredToken } from "@/components/GitHubTokenDialog";
-import { getLayoutedElements } from "@/lib/layout";
-import { analyzeRepository } from "@/lib/analysis";
 import RepoChat from "@/components/RepoChat";
-import type { AnalysisResult, RepoNode, ProgressEvent, NodeDetail } from "@/types/repo";
+import { useRepoAnalysis } from "@/hooks/useRepoAnalysis";
+import { useGraphLayout } from "@/hooks/useGraphLayout";
+import type { RepoNode, NodeDetail } from "@/types/repo";
 
 const nodeTypes = { fileNode: FileNode, folderNode: FolderNode };
-
-const edgeDefaults = {
-  style: { stroke: "hsl(187, 80%, 48%)", strokeWidth: 1.5 },
-  animated: true,
-};
-
-function buildFlowElements(result: AnalysisResult, direction: "TB" | "LR" = "TB") {
-  const flowNodes: Node[] = result.nodes.map((n) => ({
-    id: n.id,
-    type: n.type === "folder" ? "folderNode" : "fileNode",
-    position: { x: 0, y: 0 },
-    data: { ...n, direction } as Record<string, unknown>,
-  }));
-
-  const flowEdges: Edge[] = result.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-    ...edgeDefaults,
-    labelStyle: { fill: "hsl(215, 16%, 56%)", fontSize: 10, fontWeight: 500 },
-    labelBgStyle: { fill: "hsl(240, 15%, 8%)", fillOpacity: 0.9 },
-    labelBgPadding: [6, 3] as [number, number],
-    labelBgBorderRadius: 4,
-    style: {
-      ...edgeDefaults.style,
-      stroke: e.type === "contains" ? "hsl(263, 70%, 58%)" : "hsl(187, 80%, 48%)",
-    },
-  }));
-
-  return getLayoutedElements(flowNodes, flowEdges, direction);
-}
-
-// Map progress steps to step indices
-const stepMapping: Record<string, number> = {
-  fetch: 0, fetch_done: 0,
-  filter: 1, filter_done: 1,
-  extract: 2, extract_done: 2,
-  analyze: 3,
-  done: 4,
-};
 
 const VisualizeInner = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { fitView } = useReactFlow();
   const repoUrl = searchParams.get("repo") || "";
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const {
+    loading,
+    error,
+    progressStep,
+    progressEvents,
+    analysisResult,
+    repoName,
+    repoMeta,
+    runAnalysis,
+    handleNodeDetailLoaded,
+  } = useRepoAnalysis(repoUrl);
+
+  const {
+    nodes,
+    edges,
+    direction,
+    onNodesChange,
+    onEdgesChange,
+    toggleDirection,
+  } = useGraphLayout(analysisResult);
+
   const [selectedNode, setSelectedNode] = useState<RepoNode | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [progressStep, setProgressStep] = useState(0);
-  const [progressEvents, setProgressEvents] = useState<ProgressEvent[]>([]);
-  const [repoName, setRepoName] = useState("");
-  const [direction, setDirection] = useState<"TB" | "LR">("TB");
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [repoMeta, setRepoMeta] = useState<{ totalFiles?: number; wasTruncated?: boolean; filteredOut?: number }>({});
   const [askAboutNode, setAskAboutNode] = useState<string | null>(null);
 
-  const runAnalysis = useCallback(async () => {
-    if (!repoUrl) {
-      navigate("/");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setProgressStep(0);
-    setProgressEvents([]);
-    setDirection("TB");
-
-    try {
-      const result = await analyzeRepository(
-        repoUrl,
-        getStoredToken() || undefined,
-        (event) => {
-          setProgressEvents(prev => [...prev, event]);
-          const stepIdx = stepMapping[event.step];
-          if (stepIdx !== undefined) {
-            setProgressStep(stepIdx);
-          }
-        }
-      );
-
-      setProgressStep(4);
-      setRepoName(result.repoName);
-      setAnalysisResult(result);
-      setRepoMeta({
-        totalFiles: result.totalFiles,
-        wasTruncated: result.wasTruncated,
-        filteredOut: result.filteredOut,
-      });
-
-      const { nodes: ln, edges: le } = buildFlowElements(result, "TB");
-      setNodes(ln);
-      setEdges(le);
-
-      setTimeout(() => {
-        setLoading(false);
-        if (result.wasTruncated) {
-          toast({
-            title: "Large repository",
-            description: `${result.totalFiles} files found → ${result.filteredOut} filtered out → ${result.nodes.length} nodes shown.`,
-          });
-        }
-      }, 600);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Failed to analyze repository");
-      setLoading(false);
-    }
-  }, [repoUrl, navigate, setNodes, setEdges]);
-
-  useEffect(() => {
-    runAnalysis();
-  }, [runAnalysis]);
-
-  const onNodeClick = useCallback((_: any, node: Node) => {
+  const onNodeClick = useCallback((_: unknown, node: Node) => {
     setSelectedNode(node.data as unknown as RepoNode);
   }, []);
 
-  const handleNodeDetailLoaded = useCallback((nodeId: string, detail: NodeDetail) => {
-    // Update the analysis result with loaded detail so it caches
-    setAnalysisResult(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        nodes: prev.nodes.map(n =>
-          n.id === nodeId
-            ? { ...n, ...detail, detailLoaded: true }
-            : n
-        ),
-      };
-    });
-    // Also update the selected node if it matches
-    setSelectedNode(prev => {
-      if (!prev || prev.id !== nodeId) return prev;
-      return { ...prev, ...detail, detailLoaded: true };
-    });
-  }, []);
-
-  const toggleDirection = useCallback(() => {
-    if (!analysisResult) return;
-    const newDir = direction === "TB" ? "LR" : "TB";
-    setDirection(newDir);
-    const { nodes: ln, edges: le } = buildFlowElements(analysisResult, newDir);
-    setNodes(ln);
-    setEdges(le);
-    setTimeout(() => fitView({ duration: 300, padding: 0.2 }), 50);
-  }, [analysisResult, direction, setNodes, setEdges, fitView]);
+  const onNodeDetailLoadedWrapper = useCallback(
+    (nodeId: string, detail: NodeDetail) => {
+      handleNodeDetailLoaded(nodeId, detail);
+      setSelectedNode((prev) => {
+        if (!prev || prev.id !== nodeId) return prev;
+        return { ...prev, ...detail, detailLoaded: true };
+      });
+    },
+    [handleNodeDetailLoaded]
+  );
 
   if (loading) {
     return <AnalysisProgress currentStep={progressStep} progressEvents={progressEvents} />;
@@ -198,7 +85,7 @@ const VisualizeInner = () => {
           </div>
           <h2 className="mb-2 font-mono text-xl font-bold text-foreground">Analysis Failed</h2>
           <p className="mb-4 text-sm leading-relaxed text-muted-foreground">{error}</p>
-          {error.includes("private") || error.includes("Access denied") ? (
+          {(error.includes("private") || error.includes("Access denied")) && (
             <div className="mb-6">
               <GitHubTokenDialog
                 trigger={
@@ -209,13 +96,13 @@ const VisualizeInner = () => {
                 }
               />
             </div>
-          ) : null}
+          )}
           <div className="flex items-center justify-center gap-3">
             <Button variant="outline" onClick={() => navigate("/")} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               Go Back
             </Button>
-            <Button onClick={runAnalysis} className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button onClick={() => runAnalysis(true)} className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
               <RotateCcw className="h-4 w-4" />
               Retry
             </Button>
@@ -251,7 +138,7 @@ const VisualizeInner = () => {
         <div className="ml-auto flex items-center gap-2">
           <NodeSearch />
           <GitHubTokenDialog />
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={runAnalysis} title="Re-analyze repository">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => runAnalysis(true)} title="Re-analyze repository">
             <RotateCcw className="h-4 w-4" />
           </Button>
           <Button
@@ -274,16 +161,17 @@ const VisualizeInner = () => {
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
+        defaultEdgeOptions={{ type: "smoothstep" }}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="hsl(240, 12%, 14%)" />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} className="!bg-background [&>pattern>circle]:fill-muted" />
         <Controls />
         <MiniMap
-          nodeColor={(n) => (n.type === "folderNode" ? "hsl(263, 70%, 58%)" : "hsl(187, 80%, 48%)")}
+          nodeColor={(n) => (n.type === "folderNode" ? "var(--color-secondary)" : "var(--color-primary)")}
           maskColor="rgba(0, 0, 0, 0.7)"
           pannable
           zoomable
@@ -295,7 +183,7 @@ const VisualizeInner = () => {
         node={selectedNode}
         repoUrl={repoUrl}
         onClose={() => setSelectedNode(null)}
-        onNodeDetailLoaded={handleNodeDetailLoaded}
+        onNodeDetailLoaded={onNodeDetailLoadedWrapper}
         onAskChat={(question) => setAskAboutNode(question)}
       />
       <RepoChat
