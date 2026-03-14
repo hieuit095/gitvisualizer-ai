@@ -82,6 +82,21 @@ export function useRepoAnalysis(repoUrl: string) {
         applyResult(result);
         cacheAnalysis(repoUrl, result);
 
+        // Fire-and-forget: index code chunks for RAG
+        setIndexingStatus("indexing");
+        supabase.functions
+          .invoke("embed-chunks", {
+            body: { repoUrl, githubToken: getStoredToken() || undefined },
+          })
+          .then(({ error }) => {
+            if (error) console.error("Embed-chunks error:", error);
+            setIndexingStatus("done");
+          })
+          .catch((err) => {
+            console.error("Embed-chunks error:", err);
+            setIndexingStatus("done");
+          });
+
         setTimeout(() => {
           setLoading(false);
           if (result.wasTruncated) {
