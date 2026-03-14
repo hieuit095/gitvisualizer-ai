@@ -73,17 +73,44 @@ cp .env.example .env
 Open `.env` in your preferred editor and configure the essential variables:
 
 ```ini
-# Choose your AI provider (e.g., openai, openrouter, together, gemini)
+# Required
+# Choose your AI provider (e.g., openai, openrouter, together, gemini,
+# or any custom label if you also set AI_BASE_URL).
 AI_PROVIDER=openai
 
-# Your AI provider API key
+# API key for the selected provider.
 AI_API_KEY=sk-your-api-key-here
 
-# (Optional) GitHub Token to increase rate limits and access private repositories
-GITHUB_TOKEN=ghp_your_github_token_here
+# Optional
+# Override the provider's OpenAI-compatible base URL.
+# AI_BASE_URL=https://api.openai.com/v1
 
-# Optional: Set a specific chat model
+# Chat model used for analysis, summaries, and repo chat.
 # AI_CHAT_MODEL=gpt-4o-mini
+
+# Backward-compatible alias for AI_CHAT_MODEL.
+# AI_MODEL=gpt-4o-mini
+
+# Optional embedding model for semantic code search.
+# Set this for custom providers or to override the preset.
+# AI_EMBEDDING_MODEL=text-embedding-3-small
+
+# Optional explicit embedding toggle.
+# If omitted, built-in presets use their defaults.
+# AI_ENABLE_EMBEDDINGS=true
+
+# Optional OpenRouter metadata headers.
+# OPENROUTER_HTTP_REFERER=https://your-app.example
+# OPENROUTER_APP_NAME=GitVisualizer AI
+
+# Optional GitHub token for private repos and higher rate limits.
+# GITHUB_TOKEN=ghp_your_token_here
+
+# Optional directory for JSON persistence. If unset, storage is in-memory.
+# DATA_DIR=./data
+
+# Optional APP_URL used for OpenRouter headers when OPENROUTER_HTTP_REFERER is missing.
+# APP_URL=http://localhost:5173
 ```
 
 ### 4. Run the Development Server
@@ -111,6 +138,14 @@ Deploying GitVisualizer AI to Vercel is straightforward thanks to its native Ver
    * `AI_PROVIDER`
    * `AI_API_KEY`
    * `GITHUB_TOKEN` (Highly recommended)
+
+   Depending on your setup, you might also need:
+   * `AI_MODEL` / `AI_CHAT_MODEL` (To specify a custom model)
+   * `AI_BASE_URL` (For custom, OpenAI-compatible AI providers)
+   * `AI_EMBEDDING_MODEL` (For custom embedding models)
+   * `AI_ENABLE_EMBEDDINGS` (To explicitly enable embeddings)
+   * `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_NAME`, `APP_URL` (For OpenRouter metadata)
+   * `DATA_DIR` (If using Vercel Blob/KV or persistent storage plugins)
 5. **Deploy:** Click the **Deploy** button. Vercel will automatically build the React frontend and deploy the serverless functions in the `api/` directory.
 6. **Visit Your App:** Once the build completes, Vercel will provide you with a live URL to access your deployed application.
 
