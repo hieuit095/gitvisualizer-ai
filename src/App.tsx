@@ -14,8 +14,9 @@ const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const queryClient = new QueryClient();
 
 const RouteFallback = () => (
-  <div className="flex min-h-screen items-center justify-center bg-background">
+  <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
     <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    <p className="text-sm text-muted-foreground">Loading application<span className="sr-only">...</span></p>
   </div>
 );
 
