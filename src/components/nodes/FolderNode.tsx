@@ -8,7 +8,17 @@ const FolderNode = memo(({ data }: NodeProps) => {
   const isHorizontal = nodeData.direction === "LR";
 
   return (
-    <div className="group relative min-w-[160px] cursor-pointer rounded-lg border border-secondary/30 bg-secondary/5 px-4 py-3 backdrop-blur-sm transition-all hover:border-secondary/60 hover:shadow-[0_0_20px_rgba(139,92,246,0.15)]">
+    <div
+      tabIndex={0}
+      role="button"
+      aria-label={`${nodeData.name} directory, ${nodeData.summary || 'no description'}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+        }
+      }}
+      className="group relative min-w-[160px] cursor-pointer rounded-lg border border-secondary/30 bg-secondary/5 px-4 py-3 backdrop-blur-sm transition-all hover:border-secondary/60 hover:shadow-[0_0_20px_rgba(139,92,246,0.15)]"
+    >
       <Handle
         type="target"
         position={isHorizontal ? Position.Left : Position.Top}
