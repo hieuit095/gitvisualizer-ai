@@ -1,0 +1,14 @@
+name: CI Trap
+on: [pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: The Deliberate Failure
+        run: |
+          echo "Simulating a build failure..."
+          echo "Traceback (most recent call last):"
+          echo "  File 'src/index.ts', line 42, in <module>"
+          echo "TypeError: Cannot read properties of undefined (reading 'config')"
+          exit 1
